@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <title>Smart AI Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background: #020617; font-family: 'Inter', sans-serif; }
+        .glass { background: #0f172a; border: 1px solid #1e293b; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-6 text-slate-200">
+    <div class="max-w-2xl w-full glass p-10 rounded-[2.5rem] shadow-2xl">
+        <h1 class="text-4xl font-black text-center mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent italic">SMART AI</h1>
+        <p class="text-center text-slate-500 text-xs tracking-[0.3em] mb-10 uppercase font-bold">Infinite Token Processing</p>
+
+        <div class="space-y-6">
+            <div class="border-2 border-dashed border-slate-700 rounded-3xl p-12 text-center hover:border-cyan-500 transition-all cursor-pointer bg-slate-900/40" onclick="document.getElementById('f').click()">
+                <input type="file" id="f" class="hidden" onchange="document.getElementById('fn').innerText = this.files[0].name">
+                <p id="fn" class="text-slate-400">Dosyanı Seç veya Buraya Bırak</p>
+            </div>
+
+            <textarea id="t" rows="4" class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-cyan-500 text-sm" placeholder="Ne yapalım? Örn: Bu kodu Java'ya çevir..."></textarea>
+
+            <button onclick="go()" id="b" class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 py-5 rounded-2xl font-black text-lg hover:opacity-90 transition-all uppercase tracking-widest shadow-lg shadow-cyan-900/20">Uçur Kanka 🚀</button>
+
+            <div id="ld" class="hidden text-center py-4"><div class="inline-block animate-spin w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full"></div></div>
+
+            <div id="rb" class="hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-cyan-400 text-xs font-bold uppercase">Sonuç Paneli</span>
+                    <button onclick="copy()" class="text-slate-500 hover:text-white text-xs">Kopyala</button>
+                </div>
+                <div id="rt" class="bg-black/50 border border-slate-800 p-6 rounded-2xl text-slate-300 text-sm whitespace-pre-wrap max-h-80 overflow-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function go() {
+            const f = document.getElementById('f').files[0];
+            const t = document.getElementById('t').value;
+            if(!f || !t) return alert("Dosya ve talimat lazım!");
+
+            const b = document.getElementById('b'), ld = document.getElementById('ld'), rb = document.getElementById('rb'), rt = document.getElementById('rt');
+            b.classList.add('hidden'); ld.classList.remove('hidden'); rb.classList.add('hidden');
+
+            const fd = new FormData(); fd.append('file', f); fd.append('task', t);
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: fd });
+                const d = await res.json();
+                if(d.success) { rt.innerText = d.result; rb.classList.remove('hidden'); }
+                else alert(d.message);
+            } catch { alert("Bağlantı hatası!"); }
+            finally { b.classList.remove('hidden'); ld.classList.add('hidden'); }
+        }
+        function copy() { navigator.clipboard.writeText(document.getElementById('rt').innerText); alert("Kopyalandı!"); }
+    </script>
+</body>
+</html>
