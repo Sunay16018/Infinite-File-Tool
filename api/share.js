@@ -1,61 +1,74 @@
 /* ═══════════════════════════════════════════════════════
    OmniVibe Studio — api/share.js
-   Upstash Redis REST API ile paylaşım sistemi
-   ENV: KV_REST_API_URL + KV_REST_API_TOKEN (Vercel otomatik ekler)
-   TTL: 24 saat — npm paketi gerektirmez, sadece fetch kullanır
+   Upstash Redis REST API — düzeltilmiş SET/GET
+   TTL: 24 saat
 ═══════════════════════════════════════════════════════ */
 
 'use strict';
 
 const TTL_SECONDS = 60 * 60 * 24; // 24 saat
 
-/* ── ID generator: 8 char ────────────────────────────── */
+/* ── ID generator ────────────────────────────────────── */
 function genId() {
   return Math.random().toString(36).slice(2, 6) +
          Math.random().toString(36).slice(2, 6);
 }
 
-/* ── Upstash Redis REST helpers ──────────────────────── */
+/* ── Upstash Redis REST ───────────────────────────────
+   Doğru format: POST /set/key/value?EX=ttl
+   Body YOK — değer URL'de path segment olarak geçer
+──────────────────────────────────────────────────────*/
 async function redisSet(id, html) {
-  const url   = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) throw new Error('KV_REST_API_URL veya KV_REST_API_TOKEN eksik');
+  const baseUrl = process.env.KV_REST_API_URL;
+  const token   = process.env.KV_REST_API_TOKEN;
+  if (!baseUrl || !token) throw new Error('KV_REST_API_URL veya KV_REST_API_TOKEN eksik');
 
-  const resp = await fetch(`${url}/set/share:${id}`, {
-    method:  'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type':  'application/json',
-    },
-    body: JSON.stringify([html, 'EX', TTL_SECONDS]),
-  });
+  // HTML'i base64'e çevir — özel karakter sorununu önler
+  const encoded = Buffer.from(html, 'utf8').toString('base64');
+
+  // Upstash REST: POST /set/<key>/<value>?EX=<ttl>
+  const resp = await fetch(
+    `${baseUrl}/set/share:${id}/${encodeURIComponent(encoded)}?EX=${TTL_SECONDS}`,
+    {
+      method:  'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+    }
+  );
 
   if (!resp.ok) {
     const err = await resp.text().catch(() => '');
-    throw new Error(`Redis SET hatasi: ${resp.status} ${err}`);
+    throw new Error(`Redis SET hatası: ${resp.status} ${err}`);
   }
   return true;
 }
 
 async function redisGet(id) {
-  const url   = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return null;
+  const baseUrl = process.env.KV_REST_API_URL;
+  const token   = process.env.KV_REST_API_TOKEN;
+  if (!baseUrl || !token) return null;
 
-  const resp = await fetch(`${url}/get/share:${id}`, {
+  const resp = await fetch(`${baseUrl}/get/share:${id}`, {
     headers: { 'Authorization': `Bearer ${token}` },
   });
 
   if (!resp.ok) return null;
   const data = await resp.json().catch(() => null);
-  return data?.result || null;
+  const raw  = data?.result;
+  if (!raw) return null;
+
+  // base64'ten geri çevir
+  try {
+    return Buffer.from(raw, 'base64').toString('utf8');
+  } catch {
+    return raw; // eski kayıtlar için fallback
+  }
 }
 
 async function redisDel(id) {
-  const url   = process.env.KV_REST_API_URL;
-  const token = process.env.KV_REST_API_TOKEN;
-  if (!url || !token) return;
-  await fetch(`${url}/del/share:${id}`, {
+  const baseUrl = process.env.KV_REST_API_URL;
+  const token   = process.env.KV_REST_API_TOKEN;
+  if (!baseUrl || !token) return;
+  await fetch(`${baseUrl}/del/share:${id}`, {
     method:  'POST',
     headers: { 'Authorization': `Bearer ${token}` },
   }).catch(() => {});
@@ -80,15 +93,16 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'OPTIONS') { setCors(res); res.status(204).end(); return; }
 
-  /* POST — kaydet */
+  /* ── POST — HTML kaydet ── */
   if (req.method === 'POST') {
     let body = req.body;
     if (typeof body === 'string') {
-      try { body = JSON.parse(body); } catch { jsonRes(res, 400, { error: 'Gecersiz JSON' }); return; }
+      try { body = JSON.parse(body); } catch { jsonRes(res, 400, { error: 'Geçersiz JSON' }); return; }
     }
+
     const { html } = body || {};
-    if (!html || typeof html !== 'string') { jsonRes(res, 400, { error: '"html" alani zorunlu' }); return; }
-    if (html.length > 2 * 1024 * 1024)    { jsonRes(res, 413, { error: 'HTML cok buyuk (max 2MB)' }); return; }
+    if (!html || typeof html !== 'string') { jsonRes(res, 400, { error: '"html" alanı zorunlu' }); return; }
+    if (html.length > 2 * 1024 * 1024)    { jsonRes(res, 413, { error: 'HTML çok büyük (max 2MB)' }); return; }
 
     const id    = genId();
     const host  = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
@@ -96,13 +110,18 @@ module.exports = async function handler(req, res) {
     const shareUrl = `${proto}://${host}/p/${id}`;
 
     try { await redisSet(id, html); }
-    catch (err) { jsonRes(res, 500, { error: 'Redis kayit hatasi: ' + err.message }); return; }
+    catch (err) { jsonRes(res, 500, { error: 'Redis kayıt hatası: ' + err.message }); return; }
 
-    jsonRes(res, 200, { id, url: shareUrl, expires: new Date(Date.now() + TTL_SECONDS * 1000).toISOString(), ttlHours: 24 });
+    jsonRes(res, 200, {
+      id,
+      url:      shareUrl,
+      expires:  new Date(Date.now() + TTL_SECONDS * 1000).toISOString(),
+      ttlHours: 24,
+    });
     return;
   }
 
-  /* GET — getir */
+  /* ── GET — HTML getir ── */
   if (req.method === 'GET') {
     const id = (req.query?.id || new URL(req.url, 'http://x').searchParams.get('id') || '').trim();
     if (!id) { jsonRes(res, 400, { error: 'id parametresi gerekli' }); return; }
@@ -113,19 +132,41 @@ module.exports = async function handler(req, res) {
     if (!html) {
       setCors(res);
       res.status(404).setHeader('Content-Type', 'text/html; charset=utf-8').end(`<!DOCTYPE html>
-<html lang="tr"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OmniVibe — Sure Doldu</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#050c09;color:#94a3b8;font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px}.card{background:#0d1f14;border:1px solid rgba(16,185,129,.2);border-radius:16px;padding:40px 32px;max-width:400px}.icon{font-size:48px;margin-bottom:16px}h1{color:#10b981;font-size:20px;margin-bottom:8px}p{font-size:14px;line-height:1.6;color:#64748b}.badge{display:inline-block;margin-top:16px;padding:4px 12px;border-radius:99px;background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);font-size:12px;font-family:monospace;color:#34d399}</style>
-</head><body><div class="card"><div class="icon">⏰</div><h1>Onizleme Suresi Doldu</h1><p>Bu paylasim linki artik gecerli degil.<br>Onizlemeler 24 saat sonra otomatik silinir.</p><span class="badge">ID: ${id}</span></div></body></html>`);
+<html lang="tr"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OmniVibe — Süre Doldu</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#050c09;color:#94a3b8;font-family:system-ui,sans-serif;
+     display:flex;align-items:center;justify-content:center;min-height:100vh;text-align:center;padding:24px}
+.card{background:#0d1f14;border:1px solid rgba(16,185,129,.2);border-radius:16px;padding:40px 32px;max-width:400px}
+.icon{font-size:48px;margin-bottom:16px}
+h1{color:#10b981;font-size:20px;margin-bottom:8px}
+p{font-size:14px;line-height:1.6;color:#64748b}
+.badge{display:inline-block;margin-top:16px;padding:4px 12px;border-radius:99px;
+       background:rgba(16,185,129,.1);border:1px solid rgba(16,185,129,.2);
+       font-size:12px;font-family:monospace;color:#34d399}
+</style>
+</head><body>
+<div class="card">
+  <div class="icon">⏰</div>
+  <h1>Önizleme Süresi Doldu</h1>
+  <p>Bu paylaşım linki artık geçerli değil.<br>Önizlemeler 24 saat sonra otomatik silinir.</p>
+  <span class="badge">ID: ${id}</span>
+</div>
+</body></html>`);
       return;
     }
 
     setCors(res);
-    res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8').setHeader('Cache-Control', 'public, max-age=3600').end(html);
+    res.status(200)
+       .setHeader('Content-Type', 'text/html; charset=utf-8')
+       .setHeader('Cache-Control', 'public, max-age=3600')
+       .end(html);
     return;
   }
 
-  /* DELETE */
+  /* ── DELETE ── */
   if (req.method === 'DELETE') {
     const id = (req.query?.id || new URL(req.url, 'http://x').searchParams.get('id') || '').trim();
     if (!id) { jsonRes(res, 400, { error: 'id gerekli' }); return; }
