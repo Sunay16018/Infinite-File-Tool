@@ -51,27 +51,26 @@ const DOM = {
 /* ────────────────────────────────────────────────────
    SYSTEM PROMPT
 ──────────────────────────────────────────────────────*/
-const SYSTEM_PROMPT = `Sen OmniVibe Studio'nun kod üretme yapay zekasısın. Kullanıcının isteklerini analiz edip tam, çalışan web uygulamaları ve kod dosyaları üretirsin.
+const SYSTEM_PROMPT = `Sen OmniVibe Studio'nun sınırları olmayan, evrensel bir kod yazma zekasısın. Görevin, kullanıcının istediği her türlü programlama dilinde (Web, Mobil, Masaüstü, Oyun, Otomasyon) tam ve eksiksiz dosyalar üretmektir.
 
-ÇIKTI FORMATI — ÇOK ÖNEMLİ:
-Her dosyayı aşağıdaki tam formatla ver:
-
+ÇIKTI FORMATI — HAYATİ ÖNEMDE:
+Kodları sadece şu formatta ver:
 [FILE: dosya_adi.uzanti]
-// kodun tamamı buraya
+// kodun tamamı
 [END_FILE]
 
 KURALLAR:
-1. Birden fazla dosya üretebilirsin (örn: index.html, style.css, script.js).
-2. Dosya içeriklerini ASLA kısaltma. Her satırı yaz.
-3. Kod bloğunu [FILE:] ve [END_FILE] arasında tut, başka yerde değil.
-4. Dosya ismini köşeli parantez içinde tam yaz: [FILE: index.html]
-5. Üretmeden önce kısa bir Türkçe özet verebilirsin, sonra dosyaları ver.
-6. HTML dosyalarında CDN linklerini kullan, external file olarak değil.
-7. Kod kalitesi: modern, temiz, güzel görünümlü, mobil uyumlu.
-8. Varsa önceki dosyaları güncelle, sadece değişen dosyayı ver.
+1. DİL SINIRLAMASI YOK: Kullanıcı ne isterse (Python, C++, Java, PHP, Rust, Skript, SQL, Node.js, C#, Go vb.) o dilde dosya oluştur.
+2. MODERN YAPI: Her zaman o dilin en güncel ve performanslı standartlarını kullan.
+3. TAM KOD: Kodları asla "buraya gelecek" diyerek kısaltma, her satırı baştan sona yaz.
+4. GÖRSEL KALİTE: Eğer bir arayüz (UI) yapıyorsan, modern ve şık (dark mode uyumlu) tasarımlar seç.
+5. MARKDOWN YASAK: Kod bloklarını tırnak ( \`\`\` ) içine alma, sadece [FILE:] formatını kullan.
+6. AKILLI ANALİZ: Kullanıcının projesine göre eksik olabilecek dosyaları (örn: .env, requirements.txt, README.md) otomatik olarak ekle.
+7. DEĞİŞİM: Eğer önceki bir kodu güncelliyorsan, sadece değişen veya yeni eklenen dosyaları ver.
 
-Her zaman Türkçe cevap ver ama kod içeriği İngilizce olabilir.`;
-
+CEVAP DİLİ:
+- Açıklamalar: Her zaman Türkçe.
+- Kod İçeriği: İngilizce veya proje gereksinimine göre.`;
 /* ────────────────────────────────────────────────────
    API CALL — with streaming support
 ──────────────────────────────────────────────────────*/
@@ -391,6 +390,37 @@ function updateFilesFromResponse(parsedFiles) {
   // On mobile, show code tab if files were generated
   if (firstNew && window.innerWidth < 768) {
     App.switchTab('code');
+  }
+}
+
+/* ────────────────────────────────────────────────────
+   KOD ÇALIŞTIRMA (BACKEND SİMÜLASYONU)
+──────────────────────────────────────────────────────*/
+function executeActiveCode() {
+  const filename = State.activeFile;
+  const code = State.files[filename];
+
+  if (!filename || !code) return;
+
+  // HTML ise Önizleme sekmesine geç
+  if (filename.endsWith('.html')) {
+    App.switchTab('preview');
+    return;
+  }
+
+  // JS ise tarayıcı konsolunda simüle et
+  if (filename.endsWith('.js')) {
+    try {
+      console.log(`%c[OmniVibe] ${filename} çalıştırılıyor...`, 'color: #10b981; font-weight: bold;');
+      // Yeni bir fonksiyon oluşturup çalıştırır
+      const run = new Function(code);
+      run();
+      alert(`${filename} başarıyla çalıştırıldı! Sonuçları tarayıcı konsolunda (F12) görebilirsin.`);
+    } catch (err) {
+      alert("Kod hatası: " + err.message);
+    }
+  } else {
+    alert("Şu an sadece .html ve .js dosyaları direkt çalıştırılabilir. .sk veya .py için backend entegrasyonu gerekir.");
   }
 }
 
@@ -758,7 +788,7 @@ const App = {
       .catch(() => App.toast('Kopyalama başarısız', true));
   },
 
-  /* Open full preview */
+   /* Open full preview & Execute JS */
   openPreview() {
     const fileCount = Object.keys(State.files).length;
     if (fileCount === 0) {
@@ -766,6 +796,23 @@ const App = {
       return;
     }
 
+    const fileNames = Object.keys(State.files);
+    const hasHtml = fileNames.some(n => n.endsWith('.html'));
+    
+    // HTML yoksa ama aktif dosya JS ise direkt çalıştır (Backend mantığı)
+    if (!hasHtml && State.activeFile?.endsWith('.js')) {
+      try {
+        const run = new Function(State.files[State.activeFile]);
+        run();
+        App.toast(`${State.activeFile} başarıyla çalıştırıldı! ✓`);
+        return; 
+      } catch (err) {
+        App.toast('Kod Hatası: ' + err.message, true);
+        return;
+      }
+    }
+
+    // Klasik HTML/CSS/JS önizleme modu
     const doc    = buildPreviewDoc();
     const iframe = DOM.previewIframe();
     iframe.srcdoc = doc;
