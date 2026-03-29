@@ -24,28 +24,28 @@ const State = {
 const $ = id => document.getElementById(id);
 
 const DOM = {
-  chatMessages:   () => $('chat-messages'),
-  chatInput:      () => $('chat-input'),
-  sendBtn:        () => $('send-btn'),
-  sendIcon:       () => $('send-icon'),
-  loadingIcon:    () => $('loading-icon'),
-  fileTabs:       () => $('file-tabs'),
-  codeContent:    () => $('code-content'),
-  codeHighlight:  () => $('code-highlight'),
-  codeEmptyState: () => $('code-empty-state'),
-  codeFooter:     () => $('code-footer'),
-  activeFileName: () => $('active-file-name'),
-  lineCount:      () => $('line-count'),
-  streamCursor:   () => $('stream-cursor'),
-  noFilesHint:    () => $('no-files-hint'),
-  fileCountBadge: () => $('file-count-badge'),
-  previewModal:   () => $('preview-modal'),
-  previewIframe:  () => $('preview-iframe'),
-  tokenCounter:   () => $('token-counter'),
-  contextBar:     () => $('context-bar'),
-  contextLabel:   () => $('context-label'),
-  tabChat:        () => $('tab-chat'),
-  tabCode:        () => $('tab-code'),
+  chatMessages:   () => $('chat-messages') || { appendChild: () => {}, scrollTo: () => {} },
+  chatInput:      () => $('chat-input') || { value: '', style: {} },
+  sendBtn:        () => $('send-btn') || { classList: { add:()=>{}, remove:()=>{} }, disabled: false },
+  sendIcon:       () => $('send-icon') || { classList: { add:()=>{}, remove:()=>{} } },
+  loadingIcon:    () => $('loading-icon') || { classList: { add:()=>{}, remove:()=>{} } },
+  fileTabs:       () => $('file-tabs') || { innerHTML: '', appendChild: () => {} },
+  codeContent:    () => $('code-content') || { classList: { add:()=>{}, remove:()=>{} } },
+  codeHighlight:  () => $('code-highlight') || { removeAttribute: () => {}, textContent: '' },
+  codeEmptyState: () => $('code-empty-state') || { classList: { add:()=>{}, remove:()=>{} } },
+  codeFooter:     () => $('code-footer') || { style: {}, classList: { add:()=>{}, remove:()=>{} } },
+  activeFileName: () => $('active-file-name') || { textContent: '' },
+  lineCount:      () => $('line-count') || { textContent: '' },
+  streamCursor:   () => $('stream-cursor') || {},
+  noFilesHint:    () => $('no-files-hint') || { classList: { add:()=>{}, remove:()=>{} } },
+  fileCountBadge: () => $('file-count-badge') || { classList: { add:()=>{}, remove:()=>{} }, textContent: '' },
+  previewModal:   () => $('preview-modal') || { classList: { add:()=>{}, remove:()=>{} } },
+  previewIframe:  () => $('preview-iframe') || { srcdoc: '' },
+  tokenCounter:   () => $('token-counter') || { textContent: '' },
+  contextBar:     () => $('context-bar') || { classList: { add:()=>{}, remove:()=>{} }, style: {} },
+  contextLabel:   () => $('context-label') || { textContent: '' },
+  tabChat:        () => $('tab-chat') || { classList: { add:()=>{}, remove:()=>{} } },
+  tabCode:        () => $('tab-code') || { classList: { add:()=>{}, remove:()=>{} } },
 };
 
 /* ────────────────────────────────────────────────────
@@ -784,7 +784,7 @@ const App = {
   downloadZip,
 
   /* Mobile tab switch */
-  switchTab(tab) {
+    switchTab(tab) {
     State.currentTab = tab;
     const chatPanel = $('panel-chat');
     const codePanel = $('panel-code');
@@ -792,15 +792,15 @@ const App = {
     const tabCode   = DOM.tabCode();
 
     if (tab === 'chat') {
-      chatPanel.style.display = 'flex';
-      codePanel.classList.remove('mobile-visible');
-      tabChat.classList.add('active');
-      tabCode.classList.remove('active');
+      if(chatPanel) chatPanel.style.display = 'flex';
+      codePanel?.classList.remove('mobile-visible');
+      tabChat?.classList.add('active'); // ? işareti null hatasını engeller
+      tabCode?.classList.remove('active');
     } else {
-      chatPanel.style.display = 'none';
-      codePanel.classList.add('mobile-visible');
-      tabChat.classList.remove('active');
-      tabCode.classList.add('active');
+      if(chatPanel) chatPanel.style.display = 'none';
+      codePanel?.classList.add('mobile-visible');
+      tabChat?.classList.remove('active');
+      tabCode?.classList.add('active');
     }
   },
 
