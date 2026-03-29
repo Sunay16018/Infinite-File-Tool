@@ -50,25 +50,31 @@
 
     <script>
         async function process() {
-            const f = document.getElementById('fileInp').files[0];
-            const t = document.getElementById('task').value;
-            if(!t) return alert("Talimat yazmalısın kanka!");
+    const f = document.getElementById('fileInp').files[0];
+    const t = document.getElementById('task').value;
+    if(!t) return alert("Talimat yazmalısın kanka!");
 
-            const btn = document.getElementById('mainBtn'), loader = document.getElementById('loader'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
-            btn.classList.add('hidden'); loader.classList.remove('hidden'); box.classList.add('hidden');
+    const btn = document.getElementById('mainBtn'), loader = document.getElementById('loader'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
+    btn.classList.add('hidden'); loader.classList.remove('hidden'); box.classList.add('hidden');
 
-            const fd = new FormData(); if(f) fd.append('file', f); fd.append('task', t);
-            try {
-                const r = await fetch('/api/upload', { method: 'POST', body: fd });
-                const d = await r.json();
-                if(d.success) { 
-                    txt.innerHTML = d.result.replace(/\n/g, '<br>').replace(/```(.*?)\n/g, '').replace(/```/g, ''); 
-                    box.classList.remove('hidden'); 
-                } else alert(d.message);
-            } catch { alert("Hata!"); }
-            finally { btn.classList.remove('hidden'); loader.classList.add('hidden'); }
-        }
+    const fd = new FormData(); if(f) fd.append('file', f); fd.append('task', t);
+    try {
+        const r = await fetch('/api/upload', { method: 'POST', body: fd });
+        const d = await r.json();
+        if(d.success) { 
+            // MARKDOWN VE KOD BLOKLARINI TEMİZLEYEN FİLTRE:
+            let cleanResult = d.result
+                .replace(/```html/gi, '') // Başlangıçtaki ```html kısmını siler
+                .replace(/```/g, '')      // Kalan ``` işaretlerini siler
+                .trim();                  // Gereksiz boşlukları temizler
 
+            // Satır sonlarını <br> yapıp içeriği basıyoruz
+            txt.innerHTML = cleanResult.replace(/\n/g, '<br>'); 
+            box.classList.remove('hidden'); 
+        } else alert(d.message);
+    } catch { alert("Bağlantı hatası!"); }
+    finally { btn.classList.remove('hidden'); loader.classList.add('hidden'); }
+}
         function downloadAs(ext) {
             const content = document.getElementById('resTxt').innerText;
             if(ext === 'pdf') {
