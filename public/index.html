@@ -2,59 +2,91 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8">
-    <title>Smart AI Tool</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniParse AI Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
-        body { background: #020617; font-family: 'Inter', sans-serif; }
-        .glass { background: #0f172a; border: 1px solid #1e293b; }
+        body { background: #020617; font-family: 'Inter', sans-serif; color: #e2e8f0; }
+        .glass { background: #0f172a; border: 1px solid #1e293b; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .btn-grad { background: linear-gradient(90deg, #06b6d4, #3b82f6); transition: 0.3s; }
+        .btn-grad:hover { opacity: 0.85; transform: translateY(-2px); }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-6 text-slate-200">
-    <div class="max-w-2xl w-full glass p-10 rounded-[2.5rem] shadow-2xl">
-        <h1 class="text-4xl font-black text-center mb-1 bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent italic">SMART AI</h1>
-        <p class="text-center text-slate-500 text-xs tracking-[0.3em] mb-10 uppercase font-bold">Infinite Token Processing</p>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="max-w-3xl w-full glass p-8 rounded-[2rem]">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-black bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">OMNIPARSE PRO</h1>
+            <p class="text-slate-500 text-xs mt-2 tracking-widest uppercase font-bold">PDF • Image • Code • Infinite Token</p>
+        </div>
 
         <div class="space-y-6">
-            <div class="border-2 border-dashed border-slate-700 rounded-3xl p-12 text-center hover:border-cyan-500 transition-all cursor-pointer bg-slate-900/40" onclick="document.getElementById('f').click()">
-                <input type="file" id="f" class="hidden" onchange="document.getElementById('fn').innerText = this.files[0].name">
-                <p id="fn" class="text-slate-400">Dosyanı Seç veya Buraya Bırak</p>
+            <div class="relative border-2 border-dashed border-slate-700 rounded-3xl p-10 text-center hover:border-cyan-500 transition-all bg-slate-900/30" onclick="document.getElementById('fileInp').click()">
+                <input type="file" id="fileInp" class="hidden" onchange="document.getElementById('fname').innerText = this.files[0].name">
+                <p id="fname" class="text-slate-400">Görsel, PDF veya Kod Dosyası Yükle</p>
             </div>
 
-            <textarea id="t" rows="4" class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-cyan-500 text-sm" placeholder="Ne yapalım? Örn: Bu kodu Java'ya çevir..."></textarea>
+            <textarea id="task" rows="4" class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-cyan-500 text-sm" placeholder="Örn: Bu görseldeki metni oku ve PDF yap..."></textarea>
 
-            <button onclick="go()" id="b" class="w-full bg-gradient-to-r from-cyan-600 to-blue-600 py-5 rounded-2xl font-black text-lg hover:opacity-90 transition-all uppercase tracking-widest shadow-lg shadow-cyan-900/20">Uçur Kanka 🚀</button>
+            <button onclick="process()" id="mainBtn" class="w-full btn-grad py-5 rounded-2xl font-black text-lg shadow-lg">İŞLEMİ BAŞLAT 🚀</button>
 
-            <div id="ld" class="hidden text-center py-4"><div class="inline-block animate-spin w-8 h-8 border-4 border-cyan-500 border-t-transparent rounded-full"></div></div>
+            <div id="loader" class="hidden text-center"><div class="inline-block animate-spin w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full"></div></div>
 
-            <div id="rb" class="hidden">
-                <div class="flex justify-between items-center mb-2">
-                    <span class="text-cyan-400 text-xs font-bold uppercase">Sonuç Paneli</span>
-                    <button onclick="copy()" class="text-slate-500 hover:text-white text-xs">Kopyala</button>
+            <div id="resBox" class="hidden space-y-4">
+                <div class="flex flex-wrap gap-2 items-center justify-between bg-slate-800/50 p-4 rounded-2xl">
+                    <span class="text-cyan-400 text-xs font-bold uppercase tracking-tighter">Dosya Araçları:</span>
+                    <div class="flex gap-2">
+                        <button onclick="downloadPDF()" class="bg-red-600 px-3 py-1 rounded-lg text-xs font-bold">PDF İndir</button>
+                        <button onclick="downloadTxt()" class="bg-slate-600 px-3 py-1 rounded-lg text-xs font-bold">TXT İndir</button>
+                        <button onclick="copyRes()" class="bg-blue-600 px-3 py-1 rounded-lg text-xs font-bold">Kopyala</button>
+                    </div>
                 </div>
-                <div id="rt" class="bg-black/50 border border-slate-800 p-6 rounded-2xl text-slate-300 text-sm whitespace-pre-wrap max-h-80 overflow-auto"></div>
+                <div id="resTxt" class="bg-black/40 border border-slate-800 p-6 rounded-2xl text-slate-300 text-sm leading-relaxed max-h-[400px] overflow-auto"></div>
             </div>
         </div>
     </div>
 
     <script>
-        async function go() {
-            const f = document.getElementById('f').files[0];
-            const t = document.getElementById('t').value;
-            if(!f || !t) return alert("Dosya ve talimat lazım!");
+        async function process() {
+            const f = document.getElementById('fileInp').files[0];
+            const t = document.getElementById('task').value;
+            if(!f || !t) return alert("Dosya ve talimat eksik!");
 
-            const b = document.getElementById('b'), ld = document.getElementById('ld'), rb = document.getElementById('rb'), rt = document.getElementById('rt');
-            b.classList.add('hidden'); ld.classList.remove('hidden'); rb.classList.add('hidden');
+            const btn = document.getElementById('mainBtn'), loader = document.getElementById('loader'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
+            btn.classList.add('hidden'); loader.classList.remove('hidden'); box.classList.add('hidden');
 
             const fd = new FormData(); fd.append('file', f); fd.append('task', t);
             try {
-                const res = await fetch('/api/upload', { method: 'POST', body: fd });
-                const d = await res.json();
-                if(d.success) { rt.innerText = d.result; rb.classList.remove('hidden'); }
+                const r = await fetch('/api/upload', { method: 'POST', body: fd });
+                const d = await r.json();
+                if(d.success) { txt.innerText = d.result; box.classList.remove('hidden'); }
                 else alert(d.message);
-            } catch { alert("Bağlantı hatası!"); }
-            finally { b.classList.remove('hidden'); ld.classList.add('hidden'); }
+            } catch { alert("Hata oluştu!"); }
+            finally { btn.classList.remove('hidden'); loader.classList.add('hidden'); }
         }
-        function copy() { navigator.clipboard.writeText(document.getElementById('rt').innerText); alert("Kopyalandı!"); }
+
+        function downloadPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            const text = document.getElementById('resTxt').innerText;
+            const splitText = doc.splitTextToSize(text, 180);
+            doc.text(splitText, 10, 10);
+            doc.save("OmniParse_Output.pdf");
+        }
+
+        function downloadTxt() {
+            const blob = new Blob([document.getElementById('resTxt').innerText], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'OmniParse_Output.txt';
+            a.click();
+        }
+
+        function copyRes() {
+            navigator.clipboard.writeText(document.getElementById('resTxt').innerText);
+            alert("Metin kopyalandı!");
+        }
     </script>
 </body>
 </html>
