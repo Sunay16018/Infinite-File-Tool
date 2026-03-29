@@ -2,22 +2,20 @@
    OmniVibe Studio — api/index.js
    Vercel Serverless Function
    5 API Key Rotation: OPENROUTER_KEY_1 → OPENROUTER_KEY_5
-   Auto-failover on 429 / 401 errors
+   FIX: Web Streams API (no .pipe()) for Vercel Node 18+
 ═══════════════════════════════════════════════════════ */
 
 'use strict';
 
 /* ── Constants ──────────────────────────────────────── */
-const OPENROUTER_BASE  = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL    = 'google/gemini-2.0-flash-001';
-const MAX_TOKENS       = 16000;
-const MAX_RETRIES      = 5;        // equals number of keys
-const RETRY_STATUSES   = [429, 401, 503];
+const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
+const DEFAULT_MODEL   = 'google/gemini-2.0-flash-001';
+const MAX_TOKENS      = 16000;
+const RETRY_STATUSES  = [429, 401, 503];
 
 const SITE_URL  = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : 'http://localhost:3000';
-
 const SITE_NAME = 'OmniVibe Studio';
 
 /* ── API Keys ────────────────────────────────────────── */
@@ -27,233 +25,180 @@ function getApiKeys() {
     const key = process.env[`OPENROUTER_KEY_${i}`];
     if (key && key.trim()) keys.push(key.trim());
   }
-  // Fallback: single key env var
   if (keys.length === 0 && process.env.OPENROUTER_API_KEY) {
     keys.push(process.env.OPENROUTER_API_KEY.trim());
   }
   return keys;
 }
 
-/* ── CORS Headers ───────────────────────────────────── */
-const CORS_HEADERS = {
+/* ── CORS ────────────────────────────────────────────── */
+const CORS = {
   'Access-Control-Allow-Origin':  '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-/* ── Helper: send JSON response ─────────────────────── */
-function jsonResponse(res, statusCode, body) {
-  res.status(statusCode)
-     .setHeader('Content-Type', 'application/json')
-     .end(JSON.stringify(body));
+function setCors(res) {
+  Object.entries(CORS).forEach(([k, v]) => res.setHeader(k, v));
 }
 
-/* ── Helper: pipe stream ─────────────────────────────── */
-function streamResponse(res, upstreamResponse) {
-  res.setHeader('Content-Type',  'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache, no-transform');
-  res.setHeader('Connection',    'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
-  res.status(200);
-  upstreamResponse.body.pipe(res);
+function jsonRes(res, status, body) {
+  setCors(res);
+  res.status(status).setHeader('Content-Type', 'application/json').end(JSON.stringify(body));
 }
 
-/* ── Core: call OpenRouter with a specific key ────────── */
+/* ── Single OpenRouter call ──────────────────────────── */
 async function callOpenRouter(apiKey, payload) {
-  const response = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
+  return fetch(`${OPENROUTER_BASE}/chat/completions`, {
     method:  'POST',
     headers: {
-      'Content-Type':   'application/json',
-      'Authorization':  `Bearer ${apiKey}`,
-      'HTTP-Referer':   SITE_URL,
-      'X-Title':        SITE_NAME,
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer':  SITE_URL,
+      'X-Title':       SITE_NAME,
     },
     body: JSON.stringify(payload),
   });
-  return response;
 }
 
-/* ── Core: rotate through keys ───────────────────────── */
-async function callWithKeyRotation(payload) {
+/* ── Key rotation ────────────────────────────────────── */
+async function callWithRotation(payload) {
   const keys = getApiKeys();
-
   if (keys.length === 0) {
-    throw new Error(
-      'Hiçbir OpenRouter API anahtarı bulunamadı. ' +
-      'Lütfen OPENROUTER_KEY_1 ile OPENROUTER_KEY_5 arasındaki ' +
-      'ortam değişkenlerini Vercel\'de ayarlayın.'
-    );
+    throw new Error('Hicbir API anahtari bulunamadi. OPENROUTER_KEY_1 ... KEY_5 ortam degiskenlerini ayarlayin.');
   }
 
-  let lastError   = null;
-  let lastStatus  = null;
-  let keyIndex    = 0;
-
-  while (keyIndex < keys.length) {
-    const key = keys[keyIndex];
-    keyIndex++;
-
+  let lastErr = null;
+  for (let i = 0; i < keys.length; i++) {
     try {
-      const response = await callOpenRouter(key, payload);
-
-      // Success — return upstream response
-      if (response.ok) {
-        return { response, keyIndex };
+      const resp = await callOpenRouter(keys[i], payload);
+      if (resp.ok) {
+        console.log(`[OmniVibe] Key #${i + 1} basarili`);
+        return resp;
       }
-
-      // Check if we should retry with next key
-      if (RETRY_STATUSES.includes(response.status)) {
-        lastStatus = response.status;
-        const errBody = await response.text().catch(() => '');
-        lastError = new Error(
-          `Anahtar #${keyIndex} başarısız (HTTP ${response.status}): ${errBody.slice(0, 200)}`
-        );
-        console.warn(
-          `[OmniVibe] Key #${keyIndex} failed with ${response.status}. ` +
-          `${keyIndex < keys.length ? 'Trying next key...' : 'All keys exhausted.'}`
-        );
-        continue; // try next key
+      if (RETRY_STATUSES.includes(resp.status)) {
+        const body = await resp.text().catch(() => '');
+        lastErr = new Error(`Key #${i + 1} HTTP ${resp.status}: ${body.slice(0, 200)}`);
+        console.warn(`[OmniVibe] Key #${i + 1} basarisiz (${resp.status}), sonraki deneniyor...`);
+        continue;
       }
-
-      // Non-retryable error — fail immediately
-      const errBody = await response.text().catch(() => '');
-      throw new Error(`OpenRouter hatası (HTTP ${response.status}): ${errBody.slice(0, 300)}`);
-
-    } catch (fetchErr) {
-      // Network error — try next key
-      lastError = fetchErr;
-      console.warn(`[OmniVibe] Key #${keyIndex} threw: ${fetchErr.message}`);
-      continue;
+      const body = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}: ${body.slice(0, 300)}`);
+    } catch (err) {
+      if (err.message.startsWith('HTTP ')) throw err;
+      lastErr = err;
+      console.warn(`[OmniVibe] Key #${i + 1} network hatasi: ${err.message}`);
     }
   }
+  throw new Error(`Tum anahtarlar tukendi. Son hata: ${lastErr?.message}`);
+}
 
-  // All keys failed
-  const exhaustedMsg =
-    lastStatus === 429
-      ? `Tüm API anahtarlarının rate limit'i doldu (429). Lütfen birkaç dakika bekleyin.`
-      : lastStatus === 401
-      ? `Tüm API anahtarları geçersiz (401). Lütfen anahtarlarınızı kontrol edin.`
-      : `Tüm API anahtarları başarısız oldu. Son hata: ${lastError?.message || 'Bilinmeyen hata'}`;
+/* ── Stream pump: Web Streams → Node ServerResponse ──── */
+async function pumpStream(fetchResponse, res) {
+  const reader = fetchResponse.body.getReader();
 
-  throw new Error(exhaustedMsg);
+  setCors(res);
+  res.setHeader('Content-Type',      'text/event-stream');
+  res.setHeader('Cache-Control',     'no-cache, no-transform');
+  res.setHeader('Connection',        'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.status(200);
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+  } catch (err) {
+    console.error('[OmniVibe] Stream pump error:', err.message);
+  } finally {
+    res.end();
+  }
 }
 
 /* ── Request validation ──────────────────────────────── */
-function validateRequest(body) {
-  if (!body || typeof body !== 'object') {
-    return 'Geçersiz istek gövdesi';
-  }
-  if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    return '"messages" dizisi boş veya eksik';
-  }
-  for (const msg of body.messages) {
-    if (!['user', 'assistant', 'system'].includes(msg.role)) {
-      return `Geçersiz mesaj rolü: "${msg.role}"`;
-    }
-    if (typeof msg.content !== 'string') {
-      return 'Mesaj içeriği string olmalı';
-    }
+function validate(body) {
+  if (!body || typeof body !== 'object') return 'Gecersiz istek govdesi';
+  if (!Array.isArray(body.messages) || body.messages.length === 0) return '"messages" bos veya eksik';
+  for (const m of body.messages) {
+    if (!['user', 'assistant', 'system'].includes(m.role)) return `Gecersiz rol: "${m.role}"`;
+    if (typeof m.content !== 'string') return 'Mesaj icerigi string olmali';
   }
   return null;
 }
 
 /* ── MAIN HANDLER ────────────────────────────────────── */
 module.exports = async function handler(req, res) {
-  // CORS preflight
   if (req.method === 'OPTIONS') {
-    Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
+    setCors(res);
     res.status(204).end();
     return;
   }
 
-  // Set CORS on all responses
-  Object.entries(CORS_HEADERS).forEach(([k, v]) => res.setHeader(k, v));
-
-  // Health check
   if (req.method === 'GET') {
-    const keys    = getApiKeys();
-    const keyInfo = keys.map((k, i) => ({
-      index:    i + 1,
-      prefix:   k.slice(0, 8) + '...',
-      length:   k.length,
-    }));
-    jsonResponse(res, 200, {
+    const keys = getApiKeys();
+    jsonRes(res, 200, {
       status:  'ok',
       service: 'OmniVibe Studio API',
       model:   DEFAULT_MODEL,
-      keys:    keyInfo.length,
-      keyDetails: keyInfo,
+      keys:    keys.length,
+      keyPreviews: keys.map((k, i) => ({ index: i + 1, prefix: k.slice(0, 10) + '...' })),
     });
     return;
   }
 
-  // Only POST allowed beyond this point
   if (req.method !== 'POST') {
-    jsonResponse(res, 405, { error: 'Method Not Allowed. Use POST.' });
+    jsonRes(res, 405, { error: 'Method Not Allowed' });
     return;
   }
 
-  /* ── Parse body ── */
   let body = req.body;
   if (typeof body === 'string') {
     try { body = JSON.parse(body); }
-    catch { jsonResponse(res, 400, { error: 'Geçersiz JSON' }); return; }
+    catch { jsonRes(res, 400, { error: 'Gecersiz JSON' }); return; }
   }
 
-  /* ── Validate ── */
-  const validationError = validateRequest(body);
-  if (validationError) {
-    jsonResponse(res, 400, { error: validationError });
-    return;
-  }
+  const validErr = validate(body);
+  if (validErr) { jsonRes(res, 400, { error: validErr }); return; }
 
-  /* ── Build payload ── */
   const {
     messages,
     system,
-    model    = DEFAULT_MODEL,
-    stream   = true,
+    model       = DEFAULT_MODEL,
+    stream      = true,
     temperature = 0.7,
     max_tokens  = MAX_TOKENS,
   } = body;
 
-  // Build message array with optional system prompt
   const apiMessages = system
     ? [{ role: 'system', content: system }, ...messages]
     : messages;
 
   const payload = {
     model,
-    messages:    apiMessages,
+    messages:          apiMessages,
     stream,
     temperature,
     max_tokens,
-    top_p:            0.95,
+    top_p:             0.95,
     frequency_penalty: 0.05,
   };
 
-  /* ── Call API with key rotation ── */
   try {
-    const { response, keyIndex } = await callWithKeyRotation(payload);
-
-    console.log(`[OmniVibe] Request served with key #${keyIndex}`);
+    const upstreamResp = await callWithRotation(payload);
 
     if (stream) {
-      // Pipe SSE stream directly to client
-      streamResponse(res, response);
+      await pumpStream(upstreamResp, res);
     } else {
-      // Buffer full response and return JSON
-      const data = await response.json();
-      jsonResponse(res, 200, data);
+      const data = await upstreamResp.json();
+      jsonRes(res, 200, data);
     }
-
   } catch (err) {
-    console.error('[OmniVibe] All keys failed:', err.message);
-    jsonResponse(res, 503, {
-      error:   err.message,
-      details: 'Tüm API anahtarları tükendi veya geçersiz.',
-      tip:     'OPENROUTER_KEY_1 ... OPENROUTER_KEY_5 ortam değişkenlerini kontrol edin.',
+    console.error('[OmniVibe] Handler error:', err.message);
+    jsonRes(res, 503, {
+      error: err.message,
+      tip:   'OPENROUTER_KEY_1 ... OPENROUTER_KEY_5 ortam degiskenlerini kontrol edin.',
     });
   }
 };
