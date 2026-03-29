@@ -3,82 +3,124 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniParse Ultra - Fix</title>
+    <title>OmniVibe Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
-        /* Tailwind yüklenmezse bile sitenin tamamen dağılmasını önleyen yedek stiller */
-        body { background-color: #020617; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-        .main-container { background: #0f172a; padding: 2rem; border-radius: 20px; border: 1px solid #1e293b; max-width: 500px; width: 90%; text-align: center; }
-        textarea { width: 100%; background: #1e293b; color: white; border: 1px solid #334155; border-radius: 10px; padding: 10px; margin-top: 10px; box-sizing: border-box; }
-        button { width: 100%; padding: 15px; margin-top: 10px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .btn-primary { background: linear-gradient(90deg, #06b6d4, #3b82f6); color: white; }
+        body { background: #050505; color: #e2e8f0; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
+        .glass { background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+        #previewFrame { background: white; width: 100%; height: 100%; border: none; border-radius: 12px; }
+        .step-active { color: #22d3ee; border-left: 2px solid #22d3ee; padding-left: 10px; }
     </style>
 </head>
-<body>
-    <div class="main-container">
-        <h1 style="color: #22d3ee; margin-bottom: 5px;">OMNIPARSE ULTRA</h1>
-        <p style="font-size: 10px; color: #64748b; margin-bottom: 20px;">GÖRSEL ANALİZ & PDF RAPOR</p>
-        
-        <div style="border: 2px dashed #334155; padding: 20px; border-radius: 15px; cursor: pointer;" onclick="document.getElementById('fileInp').click()">
-            <input type="file" id="fileInp" style="display: none;" onchange="document.getElementById('fname').innerText = this.files[0].name">
-            <span id="fname" style="color: #94a3b8;">Dosya Seç veya Buraya Sürükle</span>
+<body class="h-screen flex flex-col">
+
+    <header class="p-4 glass flex justify-between items-center border-b border-white/10">
+        <h1 class="text-xl font-black tracking-tighter text-cyan-400 italic">OMNIVIBE STUDIO</h1>
+        <div class="flex gap-2">
+            <button onclick="togglePreview()" class="px-4 py-2 bg-blue-600 rounded-lg text-xs font-bold uppercase">Önizleme (Tam Ekran)</button>
+            <button onclick="downloadZip()" class="px-4 py-2 bg-emerald-600 rounded-lg text-xs font-bold uppercase">ZIP İndir</button>
         </div>
+    </header>
 
-        <textarea id="task" rows="4" placeholder="Ne yapmamı istersin kanka?"></textarea>
-
-        <button onclick="process()" id="mainBtn" class="btn-primary">İŞLEMİ BAŞLAT 🚀</button>
-
-        <div id="resBox" style="display: none; margin-top: 20px;">
-            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                <button onclick="downloadAs('pdf')" style="background: #e11d48; color: white;">PDF İNDİR</button>
-                <button onclick="downloadAs('txt')" style="background: #475569; color: white;">TEXT AL</button>
+    <main class="flex-1 flex overflow-hidden">
+        <div class="w-1/3 flex flex-col border-r border-white/10 p-4 space-y-4">
+            <div id="status" class="text-[10px] text-slate-500 uppercase font-bold">Durum: Bekleniyor...</div>
+            <div id="steps" class="flex-1 overflow-auto space-y-2 text-sm text-slate-400">
+                </div>
+            <div class="flex flex-col gap-2">
+                <textarea id="userInput" class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none" rows="3" placeholder="Ne kodlayalım kanka? (Örn: Bir Todo App yap)"></textarea>
+                <button onclick="sendVibe()" id="sendBtn" class="w-full py-3 bg-cyan-500 text-black font-black rounded-xl hover:bg-cyan-400 transition-all uppercase tracking-widest">KODLA ⚡</button>
             </div>
-            <div id="resTxt" style="background: #000; padding: 15px; border-radius: 10px; text-align: left; max-height: 300px; overflow-y: auto; font-size: 14px;"></div>
         </div>
+
+        <div class="w-2/3 p-4 bg-slate-950 relative">
+            <div id="editorLabel" class="absolute top-6 left-8 text-[10px] text-cyan-500/50">EDITOR_PREVIEW</div>
+            <pre id="codeView" class="w-full h-full overflow-auto p-6 text-xs text-cyan-300/80 leading-relaxed"></pre>
+        </div>
+    </main>
+
+    <div id="fullPreview" class="fixed inset-0 bg-black z-50 hidden flex flex-col">
+        <div class="p-4 flex justify-between bg-slate-900">
+            <span class="text-cyan-400 font-bold">CANLI ÖNİZLEME</span>
+            <button onclick="togglePreview()" class="text-white bg-red-500 px-4 py-1 rounded">Kapat</button>
+        </div>
+        <iframe id="previewFrame"></iframe>
     </div>
 
     <script>
-        async function process() {
-            const f = document.getElementById('fileInp').files[0];
-            const t = document.getElementById('task').value;
-            if(!t) return alert("Talimat yaz kanka!");
+        let projectFiles = {};
+        let chatHistory = [];
 
-            const btn = document.getElementById('mainBtn'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
-            btn.innerText = "İŞLENİYOR...";
+        async function sendVibe() {
+            const input = document.getElementById('userInput').value;
+            if(!input) return;
 
-            const fd = new FormData(); if(f) fd.append('file', f); fd.append('task', t);
+            const steps = document.getElementById('steps');
+            const status = document.getElementById('status');
+            const btn = document.getElementById('sendBtn');
+
+            status.innerText = "Yapay Zeka Düşünüyor...";
+            btn.disabled = true;
+            steps.innerHTML += `<div class="step-active">🚀 Talimat alındı: ${input}</div>`;
+
             try {
-                const r = await fetch('/api/upload', { method: 'POST', body: fd });
-                const d = await r.json();
-                if(d.success) { 
-                    let cleanResult = d.result.replace(/```html|```/gi, '').trim();
-                    if (f && f.type.startsWith('image/')) {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                            txt.innerHTML = `<img src="${e.target.result}" style="width:100%; border-radius:10px; margin-bottom:10px;">` + cleanResult.replace(/\n/g, '<br>');
-                        };
-                        reader.readAsDataURL(f);
-                    } else {
-                        txt.innerHTML = cleanResult.replace(/\n/g, '<br>');
-                    }
-                    box.style.display = 'block'; 
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: input, history: chatHistory })
+                });
+                const data = await response.json();
+
+                if(data.success) {
+                    parseAIResponse(data.aiResponse);
+                    chatHistory.push({ role: "user", content: input });
+                    chatHistory.push({ role: "assistant", content: data.aiResponse });
                 }
-            } catch { alert("Hata oluştu!"); }
-            finally { btn.innerText = "İŞLEMİ BAŞLAT 🚀"; }
+            } catch (err) {
+                alert("Hata: " + err.message);
+            } finally {
+                btn.disabled = false;
+                status.innerText = "Proje Hazır!";
+            }
         }
 
-        function downloadAs(ext) {
-            if(ext === 'pdf') {
-                const opt = { margin: 0.5, filename: 'rapor.pdf', image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter' } };
-                html2pdf().set(opt).from(document.getElementById('resTxt')).save();
-            } else {
-                const blob = new Blob([document.getElementById('resTxt').innerText], { type: 'text/plain' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `cikti.${ext}`;
-                a.click();
+        function parseAIResponse(text) {
+            const fileRegex = /\[FILE: (.*?)\]([\s\S]*?)\[END_FILE\]/g;
+            let match;
+            const steps = document.getElementById('steps');
+
+            while ((match = fileRegex.exec(text)) !== null) {
+                const fileName = match[1];
+                const fileContent = match[2].trim();
+                projectFiles[fileName] = fileContent;
+                steps.innerHTML += `<div class="text-emerald-400 text-xs">✅ Dosya oluşturuldu: ${fileName}</div>`;
             }
+            document.getElementById('codeView').innerText = text;
+            updatePreview();
+        }
+
+        function updatePreview() {
+            const frame = document.getElementById('previewFrame');
+            // Sadece HTML dosyasını temel alarak önizleme yapar
+            const htmlContent = projectFiles['index.html'] || "<h1>Henüz index.html yok</h1>";
+            frame.srcdoc = htmlContent;
+        }
+
+        function togglePreview() {
+            document.getElementById('fullPreview').classList.toggle('hidden');
+        }
+
+        async function downloadZip() {
+            const zip = new JSZip();
+            for(let name in projectFiles) {
+                zip.file(name, projectFiles[name]);
+            }
+            const content = await zip.generateAsync({type:"blob"});
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(content);
+            a.download = "vibe_project.zip";
+            a.click();
         }
     </script>
 </body>
