@@ -3,45 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniParse Ultra - Resim Sabitleyici</title>
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-    <script src="[https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js](https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js)"></script>
+    <title>OmniParse Ultra - Fix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
-        body { background: #020617; font-family: 'Inter', sans-serif; color: #e2e8f0; }
-        .glass { background: #0f172a; border: 1px solid #1e293b; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
-        .btn-grad { background: linear-gradient(90deg, #06b6d4, #3b82f6); transition: 0.3s; }
-        .btn-grad:hover { opacity: 0.85; transform: translateY(-2px); }
-        #resTxt img { max-width: 100%; height: auto; border-radius: 15px; margin: 20px 0; border: 3px solid #1e293b; display: block; }
-        .download-btn { padding: 10px; border-radius: 12px; font-weight: bold; font-size: 12px; flex: 1; text-align: center; }
+        /* Tailwind yüklenmezse bile sitenin tamamen dağılmasını önleyen yedek stiller */
+        body { background-color: #020617; color: white; font-family: sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+        .main-container { background: #0f172a; padding: 2rem; border-radius: 20px; border: 1px solid #1e293b; max-width: 500px; width: 90%; text-align: center; }
+        textarea { width: 100%; background: #1e293b; color: white; border: 1px solid #334155; border-radius: 10px; padding: 10px; margin-top: 10px; box-sizing: border-box; }
+        button { width: 100%; padding: 15px; margin-top: 10px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .btn-primary { background: linear-gradient(90deg, #06b6d4, #3b82f6); color: white; }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center p-4">
-
-    <div class="max-w-4xl w-full glass p-8 rounded-[2.5rem]">
-        <div class="text-center mb-8">
-            <h1 class="text-4xl font-black bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent italic">OMNIPARSE ULTRA</h1>
-            <p class="text-slate-500 text-xs mt-2 tracking-[0.3em] uppercase font-bold text-cyan-500/50">Gerçek Zamanlı Görsel Analiz & PDF</p>
+<body>
+    <div class="main-container">
+        <h1 style="color: #22d3ee; margin-bottom: 5px;">OMNIPARSE ULTRA</h1>
+        <p style="font-size: 10px; color: #64748b; margin-bottom: 20px;">GÖRSEL ANALİZ & PDF RAPOR</p>
+        
+        <div style="border: 2px dashed #334155; padding: 20px; border-radius: 15px; cursor: pointer;" onclick="document.getElementById('fileInp').click()">
+            <input type="file" id="fileInp" style="display: none;" onchange="document.getElementById('fname').innerText = this.files[0].name">
+            <span id="fname" style="color: #94a3b8;">Dosya Seç veya Buraya Sürükle</span>
         </div>
 
-        <div class="space-y-6">
-            <div class="border-2 border-dashed border-slate-700 rounded-3xl p-10 text-center hover:border-cyan-500 transition-all bg-slate-900/40 cursor-pointer" onclick="document.getElementById('fileInp').click()">
-                <input type="file" id="fileInp" class="hidden" onchange="document.getElementById('fname').innerText = this.files[0].name">
-                <p id="fname" class="text-slate-400 font-medium">Resim veya Dosya Yükle</p>
+        <textarea id="task" rows="4" placeholder="Ne yapmamı istersin kanka?"></textarea>
+
+        <button onclick="process()" id="mainBtn" class="btn-primary">İŞLEMİ BAŞLAT 🚀</button>
+
+        <div id="resBox" style="display: none; margin-top: 20px;">
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <button onclick="downloadAs('pdf')" style="background: #e11d48; color: white;">PDF İNDİR</button>
+                <button onclick="downloadAs('txt')" style="background: #475569; color: white;">TEXT AL</button>
             </div>
-
-            <textarea id="task" rows="4" class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-cyan-500 text-sm shadow-inner" placeholder="Ne yapmamı istersin kanka?"></textarea>
-
-            <button onclick="process()" id="mainBtn" class="w-full btn-grad py-5 rounded-2xl font-black text-lg shadow-xl tracking-widest">İŞLEMİ BAŞLAT 🚀</button>
-
-            <div id="loader" class="hidden text-center"><div class="inline-block animate-spin w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full"></div></div>
-
-            <div id="resBox" class="hidden space-y-4">
-                <div class="flex gap-2 bg-slate-800/50 p-3 rounded-2xl border border-slate-700">
-                    <button onclick="downloadAs('pdf')" class="download-btn bg-rose-600 hover:bg-rose-700 text-white">PDF İNDİR</button>
-                    <button onclick="downloadAs('txt')" class="download-btn bg-slate-700 hover:bg-slate-600 text-white">TEXT AL</button>
-                </div>
-                <div id="resTxt" class="bg-black/60 border border-slate-800 p-8 rounded-3xl text-slate-200 text-sm leading-relaxed max-h-[600px] overflow-auto shadow-2xl"></div>
-            </div>
+            <div id="resTxt" style="background: #000; padding: 15px; border-radius: 10px; text-align: left; max-height: 300px; overflow-y: auto; font-size: 14px;"></div>
         </div>
     </div>
 
@@ -51,44 +44,39 @@
             const t = document.getElementById('task').value;
             if(!t) return alert("Talimat yaz kanka!");
 
-            const btn = document.getElementById('mainBtn'), loader = document.getElementById('loader'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
-            btn.classList.add('hidden'); loader.classList.remove('hidden'); box.classList.add('hidden');
+            const btn = document.getElementById('mainBtn'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
+            btn.innerText = "İŞLENİYOR...";
 
             const fd = new FormData(); if(f) fd.append('file', f); fd.append('task', t);
             try {
                 const r = await fetch('/api/upload', { method: 'POST', body: fd });
                 const d = await r.json();
                 if(d.success) { 
-                    // 1. Markdown temizliği yapıyoruz
                     let cleanResult = d.result.replace(/```html|```/gi, '').trim();
-                    let finalHTML = cleanResult.replace(/\n/g, '<br>');
-
-                    // 2. Eğer resim yüklendiyse, o resmi Base64 olarak en başa koyuyoruz
                     if (f && f.type.startsWith('image/')) {
                         const reader = new FileReader();
                         reader.onload = (e) => {
-                            txt.innerHTML = `<img src="${e.target.result}">` + finalHTML;
+                            txt.innerHTML = `<img src="${e.target.result}" style="width:100%; border-radius:10px; margin-bottom:10px;">` + cleanResult.replace(/\n/g, '<br>');
                         };
                         reader.readAsDataURL(f);
                     } else {
-                        txt.innerHTML = finalHTML;
+                        txt.innerHTML = cleanResult.replace(/\n/g, '<br>');
                     }
-                    box.classList.remove('hidden'); 
-                } else alert(d.message);
-            } catch { alert("Bağlantı hatası!"); }
-            finally { btn.classList.remove('hidden'); loader.classList.add('hidden'); }
+                    box.style.display = 'block'; 
+                }
+            } catch { alert("Hata oluştu!"); }
+            finally { btn.innerText = "İŞLEMİ BAŞLAT 🚀"; }
         }
 
         function downloadAs(ext) {
             if(ext === 'pdf') {
-                const opt = { margin: 0.5, filename: 'omni_rapor.pdf', image: { type: 'jpeg', quality: 1 },
-                              html2canvas: { scale: 3, useCORS: true }, jsPDF: { unit: 'in', format: 'letter' } };
+                const opt = { margin: 0.5, filename: 'rapor.pdf', image: { type: 'jpeg', quality: 1 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'in', format: 'letter' } };
                 html2pdf().set(opt).from(document.getElementById('resTxt')).save();
             } else {
                 const blob = new Blob([document.getElementById('resTxt').innerText], { type: 'text/plain' });
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
-                a.download = `omni_cikti.${ext}`;
+                a.download = `cikti.${ext}`;
                 a.click();
             }
         }
