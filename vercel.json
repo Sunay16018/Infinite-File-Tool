@@ -4,44 +4,24 @@
   "buildCommand": "",
   "outputDirectory": ".",
   "functions": {
-    "api/index.js": {
-      "memory": 512,
-      "maxDuration": 60
-    }
+    "api/index.js": { "memory": 512, "maxDuration": 60 },
+    "api/share.js": { "memory": 256, "maxDuration": 10 },
+    "api/p.js":     { "memory": 256, "maxDuration": 10 }
   },
   "routes": [
-    {
-      "src": "/api/generate",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/api/health",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
+    { "src": "/api/generate",   "dest": "/api/index.js" },
+    { "src": "/api/share(.*)",  "dest": "/api/share.js" },
+    { "src": "/p/([a-zA-Z0-9]+)", "dest": "/api/p.js?id=$1" },
+    { "src": "/api/(.*)",       "dest": "/api/index.js" },
+    { "src": "/(.*)",           "dest": "/$1" }
   ],
   "headers": [
     {
       "source": "/api/(.*)",
       "headers": [
         { "key": "Access-Control-Allow-Origin",  "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,DELETE,OPTIONS" },
         { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization" }
-      ]
-    },
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options",        "value": "DENY" },
-        { "key": "X-XSS-Protection",       "value": "1; mode=block" }
       ]
     }
   ]

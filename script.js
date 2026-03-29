@@ -16,6 +16,8 @@ const State = {
   currentTab:     'chat',      // 'chat' | 'code'  (mobile)
   streamBuffer:   '',          // live streaming text
   tokenCount:     0,
+  shareUrl:       null,        // last generated share URL
+  shareId:        null,        // last share ID
 };
 
 /* ────────────────────────────────────────────────────
@@ -613,6 +615,113 @@ function buildPreviewDoc() {
 }
 
 /* ────────────────────────────────────────────────────
+   SHARE PREVIEW
+──────────────────────────────────────────────────────*/
+async function sharePreview() {
+  const fileCount = Object.keys(State.files).length;
+  if (fileCount === 0) {
+    App.toast('Paylaşılacak dosya yok', true);
+    return;
+  }
+
+  // Set button to loading state
+  const btnLabel  = DOM.shareBtnLabel();
+  const btnIcon   = DOM.shareBtnIcon();
+  const loadIcon  = DOM.shareLoadIcon();
+  const shareBtn  = $('btn-share-preview');
+
+  if (shareBtn) shareBtn.disabled = true;
+  if (btnLabel) btnLabel.textContent = 'Yükleniyor...';
+  if (btnIcon)  btnIcon.classList.add('hidden');
+  if (loadIcon) loadIcon.classList.remove('hidden');
+
+  try {
+    const html = buildPreviewDoc();
+
+    const resp = await fetch('/api/share', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ html }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    State.shareUrl = data.url;
+    State.shareId  = data.id;
+
+    // Show share link bar
+    const bar  = DOM.shareLinkBar();
+    const text = DOM.shareLinkText();
+    if (bar)  { bar.classList.add('visible'); }
+    if (text) { text.textContent = data.url; }
+
+    // Update preview url bar
+    const urlBar = $('preview-url-bar');
+    if (urlBar) urlBar.textContent = data.url;
+
+    // Update TTL badge
+    const ttlBadge = $('share-ttl-badge');
+    if (ttlBadge) ttlBadge.textContent = '24s geçerli';
+
+    // Auto-copy to clipboard
+    try {
+      await navigator.clipboard.writeText(data.url);
+      App.toast('Link kopyalandı! 24 saat geçerli ✓');
+    } catch {
+      App.toast('Link oluşturuldu! Manuel kopyalayın.');
+    }
+
+    // Reset button
+    if (btnLabel) btnLabel.textContent = 'Paylaş';
+    if (btnIcon)  btnIcon.classList.remove('hidden');
+    if (loadIcon) loadIcon.classList.add('hidden');
+    if (shareBtn) shareBtn.disabled = false;
+
+  } catch (err) {
+    if (btnLabel) btnLabel.textContent = 'Paylaş';
+    if (btnIcon)  btnIcon.classList.remove('hidden');
+    if (loadIcon) loadIcon.classList.add('hidden');
+    if (shareBtn) shareBtn.disabled = false;
+    App.toast('Paylaşım hatası: ' + err.message, true);
+  }
+}
+
+async function copyShareLink() {
+  const url = State.shareUrl;
+  if (!url) return;
+
+  const btn         = $('share-link-bar')?.querySelector('.share-copy-btn');
+  const copyIcon    = $('copy-icon');
+  const copiedIcon  = $('copied-icon');
+  const copyLabel   = $('copy-btn-label');
+
+  try {
+    await navigator.clipboard.writeText(url);
+
+    // Visual feedback
+    if (btn)        btn.classList.add('copied');
+    if (copyIcon)   copyIcon.classList.add('hidden');
+    if (copiedIcon) copiedIcon.classList.remove('hidden');
+    if (copyLabel)  copyLabel.textContent = 'Kopyalandı!';
+
+    App.toast('Link kopyalandı! ✓');
+
+    setTimeout(() => {
+      if (btn)        btn.classList.remove('copied');
+      if (copyIcon)   copyIcon.classList.remove('hidden');
+      if (copiedIcon) copiedIcon.classList.add('hidden');
+      if (copyLabel)  copyLabel.textContent = 'Kopyala';
+    }, 2500);
+  } catch {
+    App.toast('Kopyalama başarısız', true);
+  }
+}
+
+/* ────────────────────────────────────────────────────
    ZIP DOWNLOAD
 ──────────────────────────────────────────────────────*/
 async function downloadZip() {
@@ -825,6 +934,9 @@ const App = {
     DOM.previewModal().classList.add('hidden');
     DOM.previewIframe().srcdoc = '';
     document.body.style.overflow = '';
+    // Hide share bar on close
+    const bar = DOM.shareLinkBar();
+    if (bar) bar.classList.remove('visible');
   },
 
   /* Refresh preview */
@@ -834,6 +946,12 @@ const App = {
     iframe.srcdoc = '';
     setTimeout(() => { iframe.srcdoc = doc; }, 50);
   },
+
+  /* Share preview */
+  sharePreview,
+
+  /* Copy share link */
+  copyShareLink,
 
   /* Download ZIP */
   downloadZip,
