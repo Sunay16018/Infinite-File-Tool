@@ -3,16 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniParse Ultra - All-in-One AI</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <title>OmniParse Ultra - Resim Sabitleyici</title>
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <script src="[https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js](https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js)"></script>
     <style>
         body { background: #020617; font-family: 'Inter', sans-serif; color: #e2e8f0; }
         .glass { background: #0f172a; border: 1px solid #1e293b; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
         .btn-grad { background: linear-gradient(90deg, #06b6d4, #3b82f6); transition: 0.3s; }
         .btn-grad:hover { opacity: 0.85; transform: translateY(-2px); }
-        #resTxt img { max-width: 100%; height: auto; border-radius: 12px; margin: 15px 0; border: 2px solid #334155; }
-        .download-btn { padding: 8px 12px; border-radius: 10px; font-weight: bold; font-size: 11px; transition: 0.2s; }
+        #resTxt img { max-width: 100%; height: auto; border-radius: 15px; margin: 20px 0; border: 3px solid #1e293b; display: block; }
+        .download-btn { padding: 10px; border-radius: 12px; font-weight: bold; font-size: 12px; flex: 1; text-align: center; }
     </style>
 </head>
 <body class="min-h-screen flex items-center justify-center p-4">
@@ -20,73 +20,75 @@
     <div class="max-w-4xl w-full glass p-8 rounded-[2.5rem]">
         <div class="text-center mb-8">
             <h1 class="text-4xl font-black bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent italic">OMNIPARSE ULTRA</h1>
-            <p class="text-slate-500 text-xs mt-2 tracking-[0.3em] uppercase font-bold">PDF • Kod • Görsel • Her Şeyi İndir</p>
+            <p class="text-slate-500 text-xs mt-2 tracking-[0.3em] uppercase font-bold text-cyan-500/50">Gerçek Zamanlı Görsel Analiz & PDF</p>
         </div>
 
         <div class="space-y-6">
-            <div class="border-2 border-dashed border-slate-700 rounded-3xl p-8 text-center hover:border-cyan-500 transition-all bg-slate-900/30 cursor-pointer" onclick="document.getElementById('fileInp').click()">
+            <div class="border-2 border-dashed border-slate-700 rounded-3xl p-10 text-center hover:border-cyan-500 transition-all bg-slate-900/40 cursor-pointer" onclick="document.getElementById('fileInp').click()">
                 <input type="file" id="fileInp" class="hidden" onchange="document.getElementById('fname').innerText = this.files[0].name">
-                <p id="fname" class="text-slate-400 font-medium italic">Bir dosya seç veya sadece aşağıya yaz...</p>
+                <p id="fname" class="text-slate-400 font-medium">Resim veya Dosya Yükle</p>
             </div>
 
             <textarea id="task" rows="4" class="w-full bg-slate-900 border border-slate-800 rounded-2xl p-5 outline-none focus:ring-2 focus:ring-cyan-500 text-sm shadow-inner" placeholder="Ne yapmamı istersin kanka?"></textarea>
 
-            <button onclick="process()" id="mainBtn" class="w-full btn-grad py-5 rounded-2xl font-black text-lg shadow-xl tracking-widest uppercase">ANALİZ ET & OLUŞTUR ⚡</button>
+            <button onclick="process()" id="mainBtn" class="w-full btn-grad py-5 rounded-2xl font-black text-lg shadow-xl tracking-widest">İŞLEMİ BAŞLAT 🚀</button>
 
             <div id="loader" class="hidden text-center"><div class="inline-block animate-spin w-10 h-10 border-4 border-cyan-500 border-t-transparent rounded-full"></div></div>
 
             <div id="resBox" class="hidden space-y-4">
-                <div class="grid grid-cols-2 md:grid-cols-5 gap-2 bg-slate-800/50 p-4 rounded-2xl border border-slate-700">
-                    <button onclick="downloadAs('pdf')" class="download-btn bg-rose-600 hover:bg-rose-700 text-white">PDF</button>
-                    <button onclick="downloadAs('txt')" class="download-btn bg-slate-600 hover:bg-slate-700 text-white">TEXT</button>
-                    <button onclick="downloadAs('html')" class="download-btn bg-blue-600 hover:bg-blue-700 text-white">HTML</button>
-                    <button onclick="downloadAs('js')" class="download-btn bg-yellow-600 hover:bg-yellow-700 text-black">JS</button>
-                    <button onclick="downloadAs('py')" class="download-btn bg-emerald-600 hover:bg-emerald-700 text-white">PYTHON</button>
+                <div class="flex gap-2 bg-slate-800/50 p-3 rounded-2xl border border-slate-700">
+                    <button onclick="downloadAs('pdf')" class="download-btn bg-rose-600 hover:bg-rose-700 text-white">PDF İNDİR</button>
+                    <button onclick="downloadAs('txt')" class="download-btn bg-slate-700 hover:bg-slate-600 text-white">TEXT AL</button>
                 </div>
-                <div id="resTxt" class="bg-black/60 border border-slate-800 p-8 rounded-3xl text-slate-300 text-sm leading-relaxed max-h-[600px] overflow-auto shadow-2xl"></div>
+                <div id="resTxt" class="bg-black/60 border border-slate-800 p-8 rounded-3xl text-slate-200 text-sm leading-relaxed max-h-[600px] overflow-auto shadow-2xl"></div>
             </div>
         </div>
     </div>
 
     <script>
         async function process() {
-    const f = document.getElementById('fileInp').files[0];
-    const t = document.getElementById('task').value;
-    if(!t) return alert("Talimat yazmalısın kanka!");
+            const f = document.getElementById('fileInp').files[0];
+            const t = document.getElementById('task').value;
+            if(!t) return alert("Talimat yaz kanka!");
 
-    const btn = document.getElementById('mainBtn'), loader = document.getElementById('loader'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
-    btn.classList.add('hidden'); loader.classList.remove('hidden'); box.classList.add('hidden');
+            const btn = document.getElementById('mainBtn'), loader = document.getElementById('loader'), box = document.getElementById('resBox'), txt = document.getElementById('resTxt');
+            btn.classList.add('hidden'); loader.classList.remove('hidden'); box.classList.add('hidden');
 
-    const fd = new FormData(); if(f) fd.append('file', f); fd.append('task', t);
-    try {
-        const r = await fetch('/api/upload', { method: 'POST', body: fd });
-        const d = await r.json();
-        if(d.success) { 
-            // MARKDOWN VE KOD BLOKLARINI TEMİZLEYEN FİLTRE:
-            let cleanResult = d.result
-                .replace(/```html/gi, '') // Başlangıçtaki ```html kısmını siler
-                .replace(/```/g, '')      // Kalan ``` işaretlerini siler
-                .trim();                  // Gereksiz boşlukları temizler
+            const fd = new FormData(); if(f) fd.append('file', f); fd.append('task', t);
+            try {
+                const r = await fetch('/api/upload', { method: 'POST', body: fd });
+                const d = await r.json();
+                if(d.success) { 
+                    // 1. Markdown temizliği yapıyoruz
+                    let cleanResult = d.result.replace(/```html|```/gi, '').trim();
+                    let finalHTML = cleanResult.replace(/\n/g, '<br>');
 
-            // Satır sonlarını <br> yapıp içeriği basıyoruz
-            txt.innerHTML = cleanResult.replace(/\n/g, '<br>'); 
-            box.classList.remove('hidden'); 
-        } else alert(d.message);
-    } catch { alert("Bağlantı hatası!"); }
-    finally { btn.classList.remove('hidden'); loader.classList.add('hidden'); }
-}
+                    // 2. Eğer resim yüklendiyse, o resmi Base64 olarak en başa koyuyoruz
+                    if (f && f.type.startsWith('image/')) {
+                        const reader = new FileReader();
+                        reader.onload = (e) => {
+                            txt.innerHTML = `<img src="${e.target.result}">` + finalHTML;
+                        };
+                        reader.readAsDataURL(f);
+                    } else {
+                        txt.innerHTML = finalHTML;
+                    }
+                    box.classList.remove('hidden'); 
+                } else alert(d.message);
+            } catch { alert("Bağlantı hatası!"); }
+            finally { btn.classList.remove('hidden'); loader.classList.add('hidden'); }
+        }
+
         function downloadAs(ext) {
-            const content = document.getElementById('resTxt').innerText;
             if(ext === 'pdf') {
-                const opt = { margin: 0.5, filename: `omni_export.pdf`, image: { type: 'jpeg', quality: 0.98 },
-                              html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'in', format: 'letter' } };
+                const opt = { margin: 0.5, filename: 'omni_rapor.pdf', image: { type: 'jpeg', quality: 1 },
+                              html2canvas: { scale: 3, useCORS: true }, jsPDF: { unit: 'in', format: 'letter' } };
                 html2pdf().set(opt).from(document.getElementById('resTxt')).save();
             } else {
-                const mime = ext === 'html' ? 'text/html' : 'text/plain';
-                const blob = new Blob([content], { type: mime });
+                const blob = new Blob([document.getElementById('resTxt').innerText], { type: 'text/plain' });
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
-                a.download = `omni_export.${ext}`;
+                a.download = `omni_cikti.${ext}`;
                 a.click();
             }
         }
