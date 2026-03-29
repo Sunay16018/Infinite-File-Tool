@@ -67,13 +67,24 @@
         }
 
         function downloadPDF() {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            const text = document.getElementById('resTxt').innerText;
-            const splitText = doc.splitTextToSize(text, 180);
-            doc.text(splitText, 10, 10);
-            doc.save("OmniParse_Output.pdf");
-        }
+    const element = document.getElementById('resTxt'); // AI'nın yazdığı alan
+    
+    // PDF ayarları
+    const opt = {
+        margin:       [0.5, 0.5], // Sayfa kenar boşlukları
+        filename:     'OmniParse_Zengin_Rapor.pdf',
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { 
+            scale: 2, 
+            useCORS: true, // İnternetten gelen resimleri çekebilmesi için şart!
+            letterRendering: true 
+        },
+        jsPDF:        { unit: 'in', format: 'letter', orientation: 'portrait' }
+    };
+
+    // İşlemi başlat
+    html2pdf().set(opt).from(element).save();
+}
 
         function downloadTxt() {
             const blob = new Blob([document.getElementById('resTxt').innerText], { type: 'text/plain' });
