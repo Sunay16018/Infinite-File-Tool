@@ -1,12 +1,15 @@
 {
-  "name": "smart-ai-converter",
-  "version": "1.0.0",
+  "name": "omnivibe-studio",
+  "version": "2.0.0",
+  "description": "OmniVibe Coding Studio — AI-powered vibe coding interface with 5-key rotation",
   "main": "api/index.js",
-  "dependencies": {
-    "express": "^4.18.2",
-    "express-fileupload": "^1.4.0",
-    "pdf-parse": "^1.1.1",
-    "axios": "^1.6.0",
-    "cors": "^2.8.5"
-  }
+  "scripts": {
+    "start": "node -e \"const http=require('http'),fs=require('fs'),path=require('path');const s=http.createServer((req,res)=>{if(req.url.startsWith('/api')){req.body='';req.on('data',d=>req.body+=d);req.on('end',()=>{if(req.body)try{req.body=JSON.parse(req.body)}catch(e){}require('./api/index')(req,res)});return}let f=path.join(__dirname,req.url==='/'?'index.html':req.url.slice(1));const ext=path.extname(f);const mime={'html':'text/html','css':'text/css','js':'application/javascript','json':'application/json'};res.setHeader('Content-Type',mime[ext.slice(1)]||'text/plain');fs.createReadStream(f).on('error',()=>{res.statusCode=404;res.end('Not found')}).pipe(res)});s.listen(3000,()=>console.log('OmniVibe running at http://localhost:3000'))\"",
+    "dev": "npm start"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "keywords": ["omnivibe", "vibe-coding", "ai", "openrouter", "gemini"],
+  "license": "MIT"
 }
