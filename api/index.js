@@ -19,18 +19,22 @@ let currentKeyIndex = 0;
 
 async function callGemini(fileData, task, fileName, mimeType, attempt = 0) {
     const keys = getKeys();
-    if (attempt >= keys.length) throw new Error("Limitler doldu kanka!");
+    if (attempt >= keys.length) throw new Error("Limitler doldu!");
 
     let messageContent = [];
-    
-    // Eğer dosya bir resimse Gemini'ye "Image" olarak gönderiyoruz
-    if (mimeType.startsWith('image/')) {
-        messageContent = [
-            { type: "text", text: `Dosya Adı: ${fileName}\nTalimat: ${task}` },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileData}` } }
-        ];
+    const systemPrompt = "Sen bir dosya işleme asistanısın. Kullanıcıya asla nasıl yapacağını anlatma, rehberlik etme. Sadece istenen çıktıyı üret. Eğer HTML/Görsel istenirse doğrudan <img> ve HTML etiketlerini kullan.";
+
+    if (fileData) {
+        if (mimeType && mimeType.startsWith('image/')) {
+            messageContent = [
+                { type: "text", text: `${systemPrompt}\nTalimat: ${task}` },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileData}` } }
+            ];
+        } else {
+            messageContent = `${systemPrompt}\nDosya: ${fileName}\nİçerik: ${fileData}\nTalimat: ${task}`;
+        }
     } else {
-        messageContent = `Dosya: ${fileName}\nİçerik: ${fileData}\nTalimat: ${task}`;
+        messageContent = `${systemPrompt}\nTalimat: ${task}`;
     }
 
     try {
@@ -53,20 +57,23 @@ async function callGemini(fileData, task, fileName, mimeType, attempt = 0) {
 
 app.post('/api/upload', async (req, res) => {
     try {
-        const { file } = req.files;
         const { task } = req.body;
-        let content = "";
+        let content = null, fileName = null, mimeType = null;
 
-        if (file.mimetype === 'application/pdf') {
-            const data = await pdfParse(file.data);
-            content = data.text;
-        } else if (file.mimetype.startsWith('image/')) {
-            content = file.data.toString('base64');
-        } else {
-            content = file.data.toString('utf8');
+        if (req.files && req.files.file) {
+            const file = req.files.file;
+            fileName = file.name;
+            mimeType = file.mimetype;
+            if (file.mimetype === 'application/pdf') {
+                const data = await pdfParse(file.data);
+                content = data.text;
+            } else if (file.mimetype.startsWith('image/')) {
+                content = file.data.toString('base64');
+            } else {
+                content = file.data.toString('utf8');
+            }
         }
-
-        const result = await callGemini(content, task, file.name, file.mimetype);
+        const result = await callGemini(content, task, fileName, mimeType);
         res.json({ success: true, result });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
