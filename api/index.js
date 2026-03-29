@@ -1,6 +1,5 @@
 const express = require('express');
 const fileUpload = require('express-fileupload');
-const pdfParse = require('pdf-parse');
 const axios = require('axios');
 const cors = require('cors');
 
@@ -9,72 +8,35 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(fileUpload());
 
-const getKeys = () => [
-    process.env.OPENROUTER_KEY_1, process.env.OPENROUTER_KEY_2,
-    process.env.OPENROUTER_KEY_3, process.env.OPENROUTER_KEY_4,
-    process.env.OPENROUTER_KEY_5
-].filter(k => k);
+const keys = [process.env.OPENROUTER_KEY_1]; // Kendi keylerini ekle
 
-let currentKeyIndex = 0;
-
-async function callGemini(fileData, task, fileName, mimeType, attempt = 0) {
-    const keys = getKeys();
-    if (attempt >= keys.length) throw new Error("Limitler doldu!");
-
-    let messageContent = [];
-    const systemPrompt = "Sen bir dosya işleme asistanısın. Kullanıcıya asla nasıl yapacağını anlatma, rehberlik etme. Sadece istenen çıktıyı üret. Eğer HTML/Görsel istenirse doğrudan <img> ve HTML etiketlerini kullan.";
-
-    if (fileData) {
-        if (mimeType && mimeType.startsWith('image/')) {
-            messageContent = [
-                { type: "text", text: `${systemPrompt}\nTalimat: ${task}` },
-                { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileData}` } }
-            ];
-        } else {
-            messageContent = `${systemPrompt}\nDosya: ${fileName}\nİçerik: ${fileData}\nTalimat: ${task}`;
-        }
-    } else {
-        messageContent = `${systemPrompt}\nTalimat: ${task}`;
-    }
+app.post('/api/chat', async (req, res) => {
+    const { prompt, history } = req.body;
+    
+    // Gemini'ye proje yapısını nasıl döndüreceğini öğreten sert komut
+    const systemInstruction = `
+    Sen bir Vibe Coding uzmanısın. Kullanıcıyla konuşurken aynı zamanda arka planda dosya oluşturursun.
+    HER DOSYAYI ŞU FORMATTA VERMEK ZORUNDASIN:
+    [FILE: dosya_adi.uzanti]
+    kodlar buraya...
+    [END_FILE]
+    
+    Kullanıcıya hangi dosyaları oluşturduğunu adım adım açıkla. Bitince 'PROJE HAZIR' de.
+    `;
 
     try {
         const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
             model: "google/gemini-2.0-flash-lite-001",
-            messages: [{ role: "user", content: messageContent }]
+            messages: [
+                { role: "system", content: systemInstruction },
+                ...history,
+                { role: "user", content: prompt }
+            ]
         }, {
-            headers: { "Authorization": `Bearer ${keys[currentKeyIndex]}`, "Content-Type": "application/json" },
-            timeout: 60000
+            headers: { "Authorization": `Bearer ${keys[0]}` }
         });
-        return response.data.choices[0].message.content;
-    } catch (error) {
-        if (error.response && (error.response.status === 429 || error.response.status === 401)) {
-            currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-            return callGemini(fileData, task, fileName, mimeType, attempt + 1);
-        }
-        throw new Error("AI Hatası: " + (error.response?.data?.error?.message || "Bağlantı koptu."));
-    }
-}
 
-app.post('/api/upload', async (req, res) => {
-    try {
-        const { task } = req.body;
-        let content = null, fileName = null, mimeType = null;
-
-        if (req.files && req.files.file) {
-            const file = req.files.file;
-            fileName = file.name;
-            mimeType = file.mimetype;
-            if (file.mimetype === 'application/pdf') {
-                const data = await pdfParse(file.data);
-                content = data.text;
-            } else if (file.mimetype.startsWith('image/')) {
-                content = file.data.toString('base64');
-            } else {
-                content = file.data.toString('utf8');
-            }
-        }
-        const result = await callGemini(content, task, fileName, mimeType);
-        res.json({ success: true, result });
+        res.json({ success: true, aiResponse: response.data.choices[0].message.content });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
