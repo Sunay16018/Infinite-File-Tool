@@ -113,7 +113,9 @@ async function callAPI(onChunk) {
         const delta  = parsed.choices?.[0]?.delta?.content || '';
         if (delta) {
           full += delta;
-          onChunk(delta, full);
+          // AI'nın gönderdiği ``` tırnaklarını ve dil isimlerini (html, js vb.) anlık temizle:
+          const cleanFull = full.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '');
+          onChunk(delta, cleanFull);
         }
       } catch {
         // non-JSON line, skip
@@ -142,6 +144,9 @@ function parseFiles(text) {
 
 function stripFileBlocks(text) {
   return text
+    // 1. Önce AI'nın eklediği ```html ve ``` işaretlerini siler
+    .replace(/```[a-z]*\n?/gi, '').replace(/```/g, '')
+    // 2. Sonra [FILE] bloklarını temizler
     .replace(/\[FILE:\s*[^\]]+\][\s\S]*?\[END_FILE\]/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
