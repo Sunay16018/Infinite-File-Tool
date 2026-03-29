@@ -6,65 +6,67 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 app.use(fileUpload());
 
-// Vercel Environment Variables'dan gelen 5 anahtar
 const getKeys = () => [
-    process.env.OPENROUTER_KEY_1,
-    process.env.OPENROUTER_KEY_2,
-    process.env.OPENROUTER_KEY_3,
-    process.env.OPENROUTER_KEY_4,
+    process.env.OPENROUTER_KEY_1, process.env.OPENROUTER_KEY_2,
+    process.env.OPENROUTER_KEY_3, process.env.OPENROUTER_KEY_4,
     process.env.OPENROUTER_KEY_5
-].filter(k => k && k.trim() !== "");
+].filter(k => k);
 
 let currentKeyIndex = 0;
 
-async function callGemini(content, task, fileName, attempt = 0) {
+async function callGemini(fileData, task, fileName, mimeType, attempt = 0) {
     const keys = getKeys();
-    if (attempt >= keys.length) throw new Error("Tüm API limitleri doldu!");
+    if (attempt >= keys.length) throw new Error("Limitler doldu kanka!");
+
+    let messageContent = [];
+    
+    // Eğer dosya bir resimse Gemini'ye "Image" olarak gönderiyoruz
+    if (mimeType.startsWith('image/')) {
+        messageContent = [
+            { type: "text", text: `Dosya Adı: ${fileName}\nTalimat: ${task}` },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileData}` } }
+        ];
+    } else {
+        messageContent = `Dosya: ${fileName}\nİçerik: ${fileData}\nTalimat: ${task}`;
+    }
 
     try {
         const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
             model: "google/gemini-2.0-flash-lite-001",
-            messages: [
-                { role: "system", content: "Sen evrensel bir dosya uzmanısın. Görevin dosyayı analiz edip kullanıcının isteğine göre dönüştürmek veya özetlemek." },
-                { role: "user", content: `Dosya: ${fileName}\nİçerik: ${content}\nTalimat: ${task}` }
-            ]
+            messages: [{ role: "user", content: messageContent }]
         }, {
-            headers: { 
-                "Authorization": `Bearer ${keys[currentKeyIndex]}`,
-                "Content-Type": "application/json"
-            },
-            timeout: 50000 
+            headers: { "Authorization": `Bearer ${keys[currentKeyIndex]}`, "Content-Type": "application/json" },
+            timeout: 60000
         });
         return response.data.choices[0].message.content;
     } catch (error) {
-        // Limit hatası (429) veya Yetki hatası (401) gelirse diğer keye geç
         if (error.response && (error.response.status === 429 || error.response.status === 401)) {
             currentKeyIndex = (currentKeyIndex + 1) % keys.length;
-            return callGemini(content, task, fileName, attempt + 1);
+            return callGemini(fileData, task, fileName, mimeType, attempt + 1);
         }
-        throw new Error(error.response?.data?.error?.message || "Bağlantı hatası.");
+        throw new Error("AI Hatası: " + (error.response?.data?.error?.message || "Bağlantı koptu."));
     }
 }
 
 app.post('/api/upload', async (req, res) => {
     try {
-        if (!req.files || !req.files.file) return res.status(400).json({ success: false, message: 'Dosya seçilmedi.' });
-        
-        const file = req.files.file;
-        const task = req.body.task;
-        let text = "";
+        const { file } = req.files;
+        const { task } = req.body;
+        let content = "";
 
         if (file.mimetype === 'application/pdf') {
             const data = await pdfParse(file.data);
-            text = data.text;
+            content = data.text;
+        } else if (file.mimetype.startsWith('image/')) {
+            content = file.data.toString('base64');
         } else {
-            text = file.data.toString('utf8');
+            content = file.data.toString('utf8');
         }
 
-        const result = await callGemini(text, task, file.name);
+        const result = await callGemini(content, task, file.name, file.mimetype);
         res.json({ success: true, result });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
