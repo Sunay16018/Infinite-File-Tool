@@ -48,6 +48,11 @@ const DOM = {
   contextLabel:   () => $('context-label') || { textContent: '' },
   tabChat:        () => $('tab-chat') || { classList: { add:()=>{}, remove:()=>{} } },
   tabCode:        () => $('tab-code') || { classList: { add:()=>{}, remove:()=>{} } },
+  shareLinkBar:   () => $('share-link-bar'),
+  shareLinkText:  () => $('share-link-text'),
+  shareBtnLabel:  () => $('share-btn-label'),
+  shareBtnIcon:   () => $('share-btn-icon'),
+  shareLoadIcon:  () => $('share-loading-icon'),
 };
 
 /* ────────────────────────────────────────────────────
@@ -620,7 +625,7 @@ function buildPreviewDoc() {
 async function sharePreview() {
   const fileCount = Object.keys(State.files).length;
   if (fileCount === 0) {
-    App.toast('Paylaşılacak dosya yok', true);
+    App.toast('Önce bir şeyler üret! 💡', true);
     return;
   }
 
@@ -808,20 +813,27 @@ let toastTimer = null;
 
 function showToast(msg, isError = false) {
   const toast = $('toast');
+  if (!toast) return;
   const inner = toast.querySelector('.toast-inner');
   const icon  = $('toast-icon');
   const text  = $('toast-msg');
 
-  text.textContent = msg;
-  icon.textContent = isError ? '✕' : '✓';
-  inner.classList.toggle('error', isError);
+  if (text) text.textContent = msg;
+  if (icon) icon.textContent = isError ? '✕' : '✓';
+  if (inner) inner.classList.toggle('error', isError);
+
+  toast.style.transition = 'opacity 0.2s ease';
+  toast.style.opacity    = '0';
   toast.classList.remove('hidden');
+
+  // Force reflow then fade in
+  void toast.offsetHeight;
   toast.style.opacity = '1';
 
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => {
     toast.style.opacity = '0';
-    setTimeout(() => toast.classList.add('hidden'), 200);
+    setTimeout(() => toast.classList.add('hidden'), 250);
   }, 3000);
 }
 
