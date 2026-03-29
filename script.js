@@ -135,9 +135,12 @@ function parseFiles(text) {
   let   match;
 
   while ((match = fileRegex.exec(text)) !== null) {
-    const name    = match[1].trim();
-    const content = match[2].trimEnd();
-    found[name]   = content;
+    const filename = match[1].trim();
+    // AI'nın eklediği o gereksiz ```html ve ``` işaretlerini burada temizliyoruz:
+    const rawContent = match[2].trim();
+    const cleanContent = rawContent.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
+    
+    found[filename] = cleanContent;
   }
   return found;
 }
