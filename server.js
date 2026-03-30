@@ -26,7 +26,7 @@ async function callGemini(content, task, fileName, attempt = 0) {
 
     try {
         const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-            model: "google/gemini-2.0-flash-lite-001",
+            model: "stepfun/step-3.5-flash:free",
             messages: [
                 { role: "system", content: "Sen evrensel bir dosya uzmanısın. Kullanıcının gönderdiği dosyayı anla ve talimatına göre (kod çevirme, PDF özetleme, veri ayıklama vb.) işlemi yap." },
                 { role: "user", content: `Dosya Adı: ${fileName}\n\nİçerik:\n${content}\n\nTalimat: ${task}` }
