@@ -35,7 +35,7 @@ async function callGemini(content, task, fileName, attempt = 0) {
             headers: { 
                 "Authorization": `Bearer ${keys[currentKeyIndex]}`,
                 "Content-Type": "application/json",
-                "HTTP-Referer": "https://seninsiten.com", // OpenRouter için opsiyonel
+                "HTTP-Referer": "https://infinite-file-tool.vercel.app/", // OpenRouter için opsiyonel
                 "X-Title": "Smart AI Tool"
             },
             timeout: 40000
