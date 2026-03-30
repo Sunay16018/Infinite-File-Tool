@@ -9,8 +9,8 @@
 
 /* ── Constants ──────────────────────────────────────── */
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL = 'google/gemini-2.0-flash-lite-001';
-const MAX_TOKENS      = 8192;
+const DEFAULT_MODEL = 'stepfun/step-3.5-flash:free';
+const MAX_TOKENS      = 16000;
 const RETRY_STATUSES  = [429, 401, 503];
 
 const SITE_URL  = process.env.VERCEL_URL
