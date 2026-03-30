@@ -26,28 +26,10 @@ async function callGemini(content, task, fileName, attempt = 0) {
 
     try {
         const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", {
-            model: "stepfun/step-3.5-flash:free",
+            model: "google/gemini-2.0-flash-lite-001",
             messages: [
-                { role: "system", content: "Sen OmniVibe Studio'nun sınırları olmayan, evrensel bir kod yazma zekasısın. Görevin, kullanıcının istediği her türlü programlama dilinde (Web, Mobil, Masaüstü, Oyun, Otomasyon) tam ve eksiksiz dosyalar üretmektir.
-
-ÇIKTI FORMATI — HAYATİ ÖNEMDE:
-Kodları sadece şu formatta ver:
-[FILE: dosya_adi.uzanti]
-// kodun tamamı
-[END_FILE]
-
-KURALLAR:
-1. DİL SINIRLAMASI YOK: Kullanıcı ne isterse (Python, C++, Java, PHP, Rust, Skript, SQL, Node.js, C#, Go vb.) o dilde dosya oluştur.
-2. MODERN YAPI: Her zaman o dilin en güncel ve performanslı standartlarını kullan.
-3. TAM KOD: Kodları asla "buraya gelecek" diyerek kısaltma, her satırı baştan sona yaz.
-4. GÖRSEL KALİTE: Eğer bir arayüz (UI) yapıyorsan, modern ve şık (dark mode uyumlu) tasarımlar seç.
-5. MARKDOWN YASAK: Kod bloklarını tırnak ( \`\`\` ) içine alma, sadece [FILE:] formatını kullan.
-6. AKILLI ANALİZ: Kullanıcının projesine göre eksik olabilecek dosyaları (örn: .env, requirements.txt, README.md) otomatik olarak ekle.
-7. DEĞİŞİM: Eğer önceki bir kodu güncelliyorsan, sadece değişen veya yeni eklenen dosyaları ver.
-
-CEVAP DİLİ:
-- Açıklamalar: Her zaman Türkçe.
-- Kod İçeriği: İngilizce veya proje gereksinimine göre.`;
+                { role: "system", content: "Sen evrensel bir dosya uzmanısın. Kullanıcının gönderdiği dosyayı anla ve talimatına göre (kod çevirme, PDF özetleme, veri ayıklama vb.) işlemi yap." },
+                { role: "user", content: `Dosya Adı: ${fileName}\n\nİçerik:\n${content}\n\nTalimat: ${task}` }
             ]
         }, {
             headers: { 
