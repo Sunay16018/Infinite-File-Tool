@@ -1,22 +1,27 @@
 /* ═══════════════════════════════════════════════════════
    OmniVibe Studio — api/index.js
-   Vercel Serverless Function
-   5 API Key Rotation: OPENROUTER_KEY_1 → OPENROUTER_KEY_5
-   FIX: Web Streams API (no .pipe()) for Vercel Node 18+
+   Round-Robin Key Rotation: her istekte sıradaki key
+   Rate limit'e takılmadan 5 key'i dengeli kullan
 ═══════════════════════════════════════════════════════ */
 
 'use strict';
 
-/* ── Constants ──────────────────────────────────────── */
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL = 'qwen/qwen3.6-plus-preview:free';
-const MAX_TOKENS      = 128000;
+const DEFAULT_MODEL   = 'qwen/qwen3.6-plus-preview:free';
+const MAX_TOKENS      = 32000;
 const RETRY_STATUSES  = [429, 401, 503];
 
 const SITE_URL  = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
   : 'http://localhost:3000';
 const SITE_NAME = 'OmniVibe Studio';
+
+/* ── Round-Robin Sayacı ──────────────────────────────
+   Vercel serverless'ta global değişken aynı instance
+   içinde persist eder. Her istek bir sonraki key'i alır.
+   Instance yeniden başlarsa 0'dan başlar — sorun değil.
+──────────────────────────────────────────────────────*/
+let roundRobinIndex = 0;
 
 /* ── API Keys ────────────────────────────────────────── */
 function getApiKeys() {
@@ -29,6 +34,16 @@ function getApiKeys() {
     keys.push(process.env.OPENROUTER_API_KEY.trim());
   }
   return keys;
+}
+
+/* ── Round-Robin başlangıç index'ini hesapla ─────────
+   Her istek bir sonraki key'den başlar.
+   429 gelirse o key'i atla, sıradakine geç.
+──────────────────────────────────────────────────────*/
+function getStartIndex(keys) {
+  const idx = roundRobinIndex % keys.length;
+  roundRobinIndex = (roundRobinIndex + 1) % keys.length;
+  return idx;
 }
 
 /* ── CORS ────────────────────────────────────────────── */
@@ -61,36 +76,51 @@ async function callOpenRouter(apiKey, payload) {
   });
 }
 
-/* ── Key rotation ────────────────────────────────────── */
+/* ── Round-Robin + Failover Rotation ────────────────────
+   1. roundRobinIndex'ten başla (her istekte farklı key)
+   2. 429/401/503 gelirse sıradakine geç
+   3. Tüm keyler tükenirse hata fırlat
+──────────────────────────────────────────────────────*/
 async function callWithRotation(payload) {
   const keys = getApiKeys();
   if (keys.length === 0) {
-    throw new Error('Hicbir API anahtari bulunamadi. OPENROUTER_KEY_1 ... KEY_5 ortam degiskenlerini ayarlayin.');
+    throw new Error('Hicbir API anahtari bulunamadi. OPENROUTER_KEY_1...KEY_5 tanimlayin.');
   }
 
-  let lastErr = null;
-  for (let i = 0; i < keys.length; i++) {
+  const startIdx = getStartIndex(keys);
+  let lastErr    = null;
+
+  for (let attempt = 0; attempt < keys.length; attempt++) {
+    const keyIdx = (startIdx + attempt) % keys.length;
+    const key    = keys[keyIdx];
+
     try {
-      const resp = await callOpenRouter(keys[i], payload);
+      const resp = await callOpenRouter(key, payload);
+
       if (resp.ok) {
-        console.log(`[OmniVibe] Key #${i + 1} basarili`);
+        console.log(`[OmniVibe] Key #${keyIdx + 1} kullanildi (round-robin)`);
         return resp;
       }
+
       if (RETRY_STATUSES.includes(resp.status)) {
-        const body = await resp.text().catch(() => '');
-        lastErr = new Error(`Key #${i + 1} HTTP ${resp.status}: ${body.slice(0, 200)}`);
-        console.warn(`[OmniVibe] Key #${i + 1} basarisiz (${resp.status}), sonraki deneniyor...`);
+        const errBody = await resp.text().catch(() => '');
+        lastErr = new Error(`Key #${keyIdx + 1} HTTP ${resp.status}: ${errBody.slice(0, 150)}`);
+        console.warn(`[OmniVibe] Key #${keyIdx + 1} basarisiz (${resp.status}), sonraki deneniyor...`);
         continue;
       }
-      const body = await resp.text().catch(() => '');
-      throw new Error(`HTTP ${resp.status}: ${body.slice(0, 300)}`);
+
+      // Retry olmayan hata (400, 422 vb) — direkt fırlat
+      const errBody = await resp.text().catch(() => '');
+      throw new Error(`HTTP ${resp.status}: ${errBody.slice(0, 300)}`);
+
     } catch (err) {
       if (err.message.startsWith('HTTP ')) throw err;
       lastErr = err;
-      console.warn(`[OmniVibe] Key #${i + 1} network hatasi: ${err.message}`);
+      console.warn(`[OmniVibe] Key #${keyIdx + 1} network hatasi: ${err.message}`);
     }
   }
-  throw new Error(`Tum anahtarlar tukendi. Son hata: ${lastErr?.message}`);
+
+  throw new Error(`Tum keyler basarisiz. Son hata: ${lastErr?.message}`);
 }
 
 /* ── Stream pump: Web Streams → Node ServerResponse ──── */
@@ -130,27 +160,26 @@ function validate(body) {
 
 /* ── MAIN HANDLER ────────────────────────────────────── */
 module.exports = async function handler(req, res) {
+
   if (req.method === 'OPTIONS') {
-    setCors(res);
-    res.status(204).end();
-    return;
+    setCors(res); res.status(204).end(); return;
   }
 
   if (req.method === 'GET') {
     const keys = getApiKeys();
     jsonRes(res, 200, {
-      status:  'ok',
-      service: 'OmniVibe Studio API',
-      model:   DEFAULT_MODEL,
-      keys:    keys.length,
+      status:      'ok',
+      service:     'OmniVibe Studio API',
+      model:       DEFAULT_MODEL,
+      keys:        keys.length,
+      roundRobin:  roundRobinIndex,
       keyPreviews: keys.map((k, i) => ({ index: i + 1, prefix: k.slice(0, 10) + '...' })),
     });
     return;
   }
 
   if (req.method !== 'POST') {
-    jsonRes(res, 405, { error: 'Method Not Allowed' });
-    return;
+    jsonRes(res, 405, { error: 'Method Not Allowed' }); return;
   }
 
   let body = req.body;
@@ -198,7 +227,7 @@ module.exports = async function handler(req, res) {
     console.error('[OmniVibe] Handler error:', err.message);
     jsonRes(res, 503, {
       error: err.message,
-      tip:   'OPENROUTER_KEY_1 ... OPENROUTER_KEY_5 ortam degiskenlerini kontrol edin.',
+      tip:   'OPENROUTER_KEY_1...KEY_5 ortam degiskenlerini kontrol edin.',
     });
   }
 };
