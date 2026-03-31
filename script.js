@@ -73,7 +73,13 @@ KURALLAR:
 4. GÖRSEL KALİTE: Eğer bir arayüz (UI) yapıyorsan, modern ve şık (dark mode uyumlu) tasarımlar seç.
 5. MARKDOWN YASAK: Kod bloklarını tırnak ( \`\`\` ) içine alma, sadece [FILE:] formatını kullan.
 6. AKILLI ANALİZ: Kullanıcının projesine göre eksik olabilecek dosyaları (örn: .env, requirements.txt, README.md) otomatik olarak ekle.
-7. DEĞİŞİM: Eğer önceki bir kodu güncelliyorsan, sadece değişen veya yeni eklenen dosyaları ver.
+7. DEĞİŞİM: Eğer kullanıcı "devam et", "devam", "continue", "sürdür" yazarsa:
+   - ASLA baştan başlama
+   - Kaldığın yerden devam et
+   - Sadece kalan kısmı yaz
+   - [FILE:] bloğunu açık bırakıp devam edebilirsin
+8. BÜYÜK PROJELER: Kod çok uzunsa önce dosyaları sırala, sonra birer birer yaz.
+   Her dosyayı bitirdikten sonra "Sonraki dosya için 'devam' yaz" de.
 
 CEVAP DİLİ:
 - Açıklamalar: Her zaman Türkçe.
