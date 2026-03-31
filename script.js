@@ -26,7 +26,7 @@ const State = {
 const $ = id => document.getElementById(id);
 
 const DOM = {
-  chatMessages:   () => $('chat-messages') || { appendChild: () => {}, scrollTo: () => {} },
+  chatMessages:   () => $('chat-messages'),
   chatInput:      () => $('chat-input') || { value: '', style: {} },
   sendBtn:        () => $('send-btn') || { classList: { add:()=>{}, remove:()=>{} }, disabled: false },
   sendIcon:       () => $('send-icon') || { classList: { add:()=>{}, remove:()=>{} } },
@@ -187,10 +187,13 @@ function countTokensApprox(text) {
 ──────────────────────────────────────────────────────*/
 function scrollToBottom() {
   const el = DOM.chatMessages();
+  if (!el) return;
   el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
 }
 
 function appendUserMessage(text) {
+  const container = DOM.chatMessages();
+  if (!container) return;
   const div = document.createElement('div');
   div.className = 'animate-fade-up';
   div.innerHTML = `
@@ -200,7 +203,7 @@ function appendUserMessage(text) {
         <p class="msg-text">${escapeHtml(text)}</p>
       </div>
     </div>`;
-  DOM.chatMessages().appendChild(div);
+  container.appendChild(div);
   scrollToBottom();
 }
 
@@ -223,7 +226,8 @@ function appendTypingIndicator() {
         </div>
       </div>
     </div>`;
-  DOM.chatMessages().appendChild(div);
+  const container = DOM.chatMessages();
+  if (container) container.appendChild(div);
   scrollToBottom();
   return div;
 }
@@ -254,22 +258,46 @@ function finalizeTypingIndicator(div, fullText, parsedFiles) {
 
   const msgDiv = document.createElement('div');
   msgDiv.className = 'animate-fade-up';
-  msgDiv.innerHTML = `
-    <div class="flex items-start gap-3">
-      <div class="avatar-ai flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 17l10 5 10-5" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/>
-        </svg>
-      </div>
-      <div class="msg-bubble-ai flex-1">
-        <div class="text-xs text-emerald-400 font-semibold mb-1 font-mono">OmniVibe AI</div>
-        ${chatText ? `<p class="msg-text">${formatMsgText(chatText)}</p>` : ''}
-        ${chipsHtml ? `<div class="flex flex-wrap gap-1.5 mt-2">${chipsHtml}</div>` : ''}
-      </div>
-    </div>`;
 
-  DOM.chatMessages().appendChild(msgDiv);
+  // Güvenli DOM oluşturma - innerHTML injection riski yok
+  const wrapper = document.createElement('div');
+  wrapper.className = 'flex items-start gap-3';
+
+  const avatarHtml = `<div class="avatar-ai flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M2 17l10 5 10-5" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>
+  </div>`;
+
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble-ai flex-1';
+
+  const label = document.createElement('div');
+  label.className = 'text-xs text-emerald-400 font-semibold mb-1 font-mono';
+  label.textContent = 'OmniVibe AI';
+  bubble.appendChild(label);
+
+  if (chatText) {
+    const p = document.createElement('p');
+    p.className = 'msg-text';
+    p.innerHTML = formatMsgText(chatText);
+    bubble.appendChild(p);
+  }
+
+  if (chipsHtml) {
+    const chipsDiv = document.createElement('div');
+    chipsDiv.className = 'flex flex-wrap gap-1.5 mt-2';
+    chipsDiv.innerHTML = chipsHtml;
+    bubble.appendChild(chipsDiv);
+  }
+
+  wrapper.innerHTML = avatarHtml;
+  wrapper.appendChild(bubble);
+  msgDiv.appendChild(wrapper);
+
+  const container = DOM.chatMessages();
+  if (container) container.appendChild(msgDiv);
   scrollToBottom();
 }
 
@@ -288,15 +316,17 @@ function appendErrorMessage(errText) {
         <p class="msg-text text-red-300">${escapeHtml(errText)}</p>
       </div>
     </div>`;
-  DOM.chatMessages().appendChild(div);
+  const errContainer = DOM.chatMessages();
+  if (errContainer) errContainer.appendChild(div);
   scrollToBottom();
 }
 
 function formatMsgText(text) {
-  // Basic markdown: **bold**, `code`, line breaks
-  return escapeHtml(text)
-    .replace(/\*\*(.+?)\*\*/g, '<strong class="text-emerald-300">$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+  // Önce escape et, sonra güvenli markdown dönüşümü
+  const escaped = escapeHtml(text);
+  return escaped
+    .replace(/\*\*([^*]+)\*\*/g, '<strong class="text-emerald-300">$1</strong>')
+    .replace(/`([^`<>]+)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br>');
 }
 
