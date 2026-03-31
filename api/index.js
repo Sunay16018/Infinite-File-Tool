@@ -9,8 +9,8 @@
 
 /* ── Constants ──────────────────────────────────────── */
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL = 'stepfun/step-3.5-flash:free';
-const MAX_TOKENS      = 32000;
+const DEFAULT_MODEL = 'qwen/qwen3-coder-480b-a35b-instruct:free';
+const MAX_TOKENS      = 8192;
 const RETRY_STATUSES  = [429, 401, 503];
 
 const SITE_URL  = process.env.VERCEL_URL
@@ -21,7 +21,7 @@ const SITE_NAME = 'OmniVibe Studio';
 /* ── API Keys ────────────────────────────────────────── */
 function getApiKeys() {
   const keys = [];
-  for (let i = 1; i <= 5; i++) {
+  for (let i = 1; i <= 7; i++) {
     const key = process.env[`OPENROUTER_KEY_${i}`];
     if (key && key.trim()) keys.push(key.trim());
   }
