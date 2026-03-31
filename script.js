@@ -250,31 +250,20 @@ function updateTypingIndicator(div, textSoFar) {
 }
 
 function finalizeTypingIndicator(div, fullText, parsedFiles) {
-  div.remove();
+  if (div) div.remove();
 
   const chatText = stripFileBlocks(fullText).trim();
   const fileNames = Object.keys(parsedFiles);
 
-  // Build file chips
-  const chipsHtml = fileNames.map(n => `
-    <button class="file-chip" onclick="App.viewFile('${escapeHtml(n)}')">
-      <span class="w-2 h-2 rounded-full ${getFileColor(n)}"></span>
-      ${escapeHtml(n)}
-    </button>`).join('');
-
   const msgDiv = document.createElement('div');
   msgDiv.className = 'animate-fade-up';
 
-  // Güvenli DOM oluşturma - innerHTML injection riski yok
   const wrapper = document.createElement('div');
   wrapper.className = 'flex items-start gap-3';
 
-  const avatarHtml = `<div class="avatar-ai flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-      <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M2 17l10 5 10-5" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/>
-    </svg>
-  </div>`;
+  const avatarDiv = document.createElement('div');
+  avatarDiv.className = 'avatar-ai flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center';
+  avatarDiv.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/><path d="M2 17l10 5 10-5" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
 
   const bubble = document.createElement('div');
   bubble.className = 'msg-bubble-ai flex-1';
@@ -291,20 +280,30 @@ function finalizeTypingIndicator(div, fullText, parsedFiles) {
     bubble.appendChild(p);
   }
 
-  if (chipsHtml) {
+  if (fileNames.length > 0) {
     const chipsDiv = document.createElement('div');
     chipsDiv.className = 'flex flex-wrap gap-1.5 mt-2';
-    chipsDiv.innerHTML = chipsHtml;
+    
+    fileNames.forEach(n => {
+      const btn = document.createElement('button');
+      btn.className = 'file-chip';
+      btn.innerHTML = `<span class="w-2 h-2 rounded-full ${getFileColor(n)}"></span>${escapeHtml(n)}`;
+      btn.onclick = () => App.viewFile(n);
+      chipsDiv.appendChild(btn); 
+    });
+    
     bubble.appendChild(chipsDiv);
   }
 
-  wrapper.innerHTML = avatarHtml;
+  wrapper.appendChild(avatarDiv);
   wrapper.appendChild(bubble);
   msgDiv.appendChild(wrapper);
 
   const container = DOM.chatMessages();
-  if (container) container.appendChild(msgDiv);
-  scrollToBottom();
+  if (container && container.appendChild) {
+    container.appendChild(msgDiv);
+    scrollToBottom();
+  }
 }
 
 function appendErrorMessage(errText) {
