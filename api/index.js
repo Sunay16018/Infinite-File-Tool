@@ -7,7 +7,7 @@
 'use strict';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
-const DEFAULT_MODEL   = 'qwen/qwen3-coder:free';
+const DEFAULT_MODEL   = 'arcee-ai/trinity-large-preview:free';
 const MAX_TOKENS      = 5000;
 const RETRY_STATUSES  = [429, 401, 503];
 
