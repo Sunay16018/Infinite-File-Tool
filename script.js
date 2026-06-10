@@ -111,7 +111,11 @@ Dosyalari SADECE bu yapida ver:
 function initMonacoEditor() {
   if (State.isMonacoReady) return;
 
-  require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+  try {
+    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+  } catch(e) {
+    console.error('[OmniVibe] Monaco loader hatasi:', e);
+  }
 
   require(['vs/editor/editor.main'], () => {
     monaco.editor.defineTheme('omnivibe-dark', {
@@ -235,6 +239,9 @@ function initMonacoEditor() {
 
     State.isMonacoReady = true;
     console.log('%c[OmniVibe] Monaco Editor hazir', 'color: #10b981');
+  }, (err) => {
+    console.error('[OmniVibe] Monaco Editor yuklenemedi:', err);
+    App.toast('Editor yuklenemedi, sayfayi yenile', true);
   });
 }
 
@@ -258,8 +265,25 @@ async function callAPI(onChunk) {
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'Sunucu hatasi' }));
-    throw new Error(err.error || `HTTP ${response.status}`);
+    let errMsg = `HTTP ${response.status}`;
+    let errData = null;
+    try {
+      errData = await response.json();
+      errMsg = errData.error || errData.message || `HTTP ${response.status}`;
+      console.error('[OmniVibe] API Hatasi:', errData);
+    } catch(e) {
+      const text = await response.text().catch(() => '');
+      errMsg = text || `HTTP ${response.status}`;
+    }
+    // Hata panelini göster
+    const panel = $('api-error-panel');
+    const msgEl = $('api-error-msg');
+    if (panel && msgEl && errData) {
+      msgEl.innerHTML = `<strong>${errMsg}</strong><br><br>${errData.tip || ''}<br><br>
+        <span class="text-slate-400">Debug: ${JSON.stringify(errData.envCheck || {})}</span>`;
+      panel.classList.remove('hidden');
+    }
+    throw new Error(errMsg);
   }
 
   const reader = response.body.getReader();
@@ -850,6 +874,9 @@ function onStreamChunk(delta, fullSoFar) {
 ──────────────────────────────────────────────────────*/
 async function sendMessage(text) {
   if (State.isLoading || !text.trim()) return;
+  // Önceki hata panelini gizle
+  const errPanel = $('api-error-panel');
+  if (errPanel) errPanel.classList.add('hidden');
 
   State.isLoading = true;
   streamPartialBuffer = '';
@@ -892,7 +919,12 @@ async function sendMessage(text) {
   } catch (err) {
     indicator.remove();
     const msg = err.message || 'Bilinmeyen hata';
+    console.error('[OmniVibe] Tam hata:', err);
     appendErrorMessage(`API Hatasi: ${msg}`);
+    // Hata detayını da göster
+    if (err.stack) {
+      console.error('[OmniVibe] Stack:', err.stack);
+    }
     State.messages.pop();
     App.toast(`Hata: ${msg}`, true);
   } finally {
@@ -1514,6 +1546,27 @@ const App = {
   toggleConsole,
 
   contextAction,
+
+  testAPI: async () => {
+    try {
+      const resp = await fetch('/api/generate', { method: 'GET' });
+      const data = await resp.json();
+      console.log('[OmniVibe] API Test:', data);
+      App.toast(`API OK! ${data.keys} key bulundu`);
+      return data;
+    } catch (err) {
+      console.error('[OmniVibe] API Test Hatasi:', err);
+      App.toast('API Test Hatasi: ' + err.message, true);
+      // Hata panelini göster
+      const panel = $('api-error-panel');
+      const msg = $('api-error-msg');
+      if (panel && msg) {
+        msg.textContent = err.message + '. Vercel Dashboard > Environment Variables kismina CEREBRAS_API_KEY_1 eklemeyi unutma. Sonra YENI DEPLOY yap.';
+        panel.classList.remove('hidden');
+      }
+      throw err;
+    }
+  },
 
   toast: showToast,
 };
