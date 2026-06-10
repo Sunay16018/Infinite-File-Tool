@@ -2,11 +2,14 @@
    OmniVibe Studio — api/index.js
    Cerebras GPT-OSS-120B "GOD MODE" Konfigürasyonu
    Round-Robin Key Rotation + Gelişmiş Hata Yönetimi
+   HTTPS Modülü ile (Vercel Serverless Uyumlu)
 ═══════════════════════════════════════════════════════ */
 
 'use strict';
 
-const CEREBRAS_BASE = 'https://api.cerebras.ai/v1';
+const https = require('https');
+
+const CEREBRAS_BASE = 'api.cerebras.ai';
 const DEFAULT_MODEL = 'gpt-oss-120b';
 const MAX_TOKENS    = 8192;
 const RETRY_STATUSES = [429, 401, 403, 503];
@@ -23,13 +26,17 @@ const SITE_NAME = 'OmniVibe Studio';
 ──────────────────────────────────────────────────────*/
 let roundRobinIndex = 0;
 
-/* ── API Keys ────────────────────────────────────────── */
+/* ── API Keys ──────────────────────────────────────────
+   Vercel'de CEREBRAS_API_KEY_1...KEY_7 olarak tanımlanmalı
+   Key'ler 'csk_' ile başlamalıdır.
+──────────────────────────────────────────────────────*/
 function getApiKeys() {
   const keys = [];
   for (let i = 1; i <= 7; i++) {
     const key = process.env[`CEREBRAS_API_KEY_${i}`];
     if (key && key.trim() && key.trim().startsWith('csk_')) keys.push(key.trim());
   }
+  // Fallback: tek bir CEREBRAS_API_KEY de kabul edilir
   if (keys.length === 0 && process.env.CEREBRAS_API_KEY) {
     const fallback = process.env.CEREBRAS_API_KEY.trim();
     if (fallback.startsWith('csk_')) keys.push(fallback);
@@ -75,30 +82,78 @@ function buildPayload(body, apiMessages, sessionId) {
     model: body.model || DEFAULT_MODEL,
     messages: apiMessages,
     reasoning_effort: body.reasoning_effort || 'high',
-    temperature: body.temperature ?? 0.3,
-    top_p: body.top_p ?? 0.9,
+    temperature: body.temperature !== undefined ? body.temperature : 0.3,
+    top_p: body.top_p !== undefined ? body.top_p : 0.9,
     max_completion_tokens: body.max_tokens || MAX_TOKENS,
-    clear_thinking: body.clear_thinking ?? true,
-    stream: body.stream ?? true,
-    presence_penalty: body.presence_penalty ?? 0.1,
-    frequency_penalty: body.frequency_penalty ?? 0.1,
+    clear_thinking: body.clear_thinking !== undefined ? body.clear_thinking : true,
+    stream: body.stream !== undefined ? body.stream : true,
+    presence_penalty: body.presence_penalty !== undefined ? body.presence_penalty : 0.1,
+    frequency_penalty: body.frequency_penalty !== undefined ? body.frequency_penalty : 0.1,
     user: sessionId || 'anonymous',
     prompt_cache_key: sessionId || null
   };
 }
 
-/* ── Single Cerebras call ────────────────────────────── */
-async function callCerebras(apiKey, payload) {
-  return fetch(`${CEREBRAS_BASE}/chat/completions`, {
-    method:  'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-      'HTTP-Referer':  SITE_URL,
-      'X-Title':       SITE_NAME,
-      'Accept':        'application/json'
-    },
-    body: JSON.stringify(payload),
+/* ── HTTPS Request Helper (Vercel Serverless Uyumlu) ───
+   fetch() yerine Node.js native https modülü kullanıyoruz.
+   Vercel serverless ortamında daha güvenli çalışır.
+──────────────────────────────────────────────────────*/
+function cerebrasRequest(apiKey, payload) {
+  return new Promise((resolve, reject) => {
+    const postData = JSON.stringify(payload);
+
+    const options = {
+      hostname: CEREBRAS_BASE,
+      port: 443,
+      path: '/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': SITE_URL,
+        'X-Title': SITE_NAME,
+        'Accept': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 120000 // 120 saniye timeout
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            json: async () => parsed,
+            text: async () => data,
+            body: { getReader: () => ({ read: async () => ({ done: true, value: null }) }) }
+          });
+        } catch (e) {
+          resolve({
+            ok: res.statusCode >= 200 && res.statusCode < 300,
+            status: res.statusCode,
+            json: async () => ({ error: { message: data } }),
+            text: async () => data,
+            body: { getReader: () => ({ read: async () => ({ done: true, value: null }) }) }
+          });
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      reject(new Error(`Network hatası: ${err.message}`));
+    });
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timeout (120s)'));
+    });
+
+    req.write(postData);
+    req.end();
   });
 }
 
@@ -109,8 +164,9 @@ async function callCerebras(apiKey, payload) {
 ──────────────────────────────────────────────────────*/
 async function callWithRotation(payload, attempt = 0) {
   const keys = getApiKeys();
+
   if (keys.length === 0) {
-    throw new Error('Hiç Cerebras API anahtarı bulunamadı. CEREBRAS_API_KEY_1...KEY_7 tanımlayın. (cloud.cerebras.ai)');
+    throw new Error('Hiç Cerebras API anahtarı bulunamadı. Vercel Environment Variables'e CEREBRAS_API_KEY_1 ekleyin. (cloud.cerebras.ai)');
   }
 
   if (attempt >= keys.length * 2) {
@@ -125,7 +181,7 @@ async function callWithRotation(payload, attempt = 0) {
     const key    = keys[keyIdx];
 
     try {
-      const resp = await callCerebras(key, payload);
+      const resp = await cerebrasRequest(key, payload);
 
       if (resp.ok) {
         const data = await resp.json();
@@ -136,7 +192,7 @@ async function callWithRotation(payload, attempt = 0) {
       }
 
       if (RETRY_STATUSES.includes(resp.status)) {
-        const errBody = await resp.text().catch(() => '');
+        const errBody = await resp.text();
         lastErr = new Error(`Key #${keyIdx + 1} HTTP ${resp.status}: ${errBody.slice(0, 150)}`);
         console.warn(`⚠️ [OmniVibe] Key #${keyIdx + 1} başarısız (${resp.status}), sonrakine geçiliyor...`);
         continue;
@@ -151,7 +207,7 @@ async function callWithRotation(payload, attempt = 0) {
       }
 
       // Retry olmayan hata (400, 422 vb) — direkt fırlat
-      const errBody = await resp.text().catch(() => '');
+      const errBody = await resp.text();
       throw new Error(`HTTP ${resp.status}: ${errBody.slice(0, 300)}`);
 
     } catch (err) {
@@ -167,30 +223,6 @@ async function callWithRotation(payload, attempt = 0) {
   await new Promise(r => setTimeout(r, delay));
 
   return callWithRotation(payload, attempt + 1);
-}
-
-/* ── Stream pump: Web Streams → Node ServerResponse ──── */
-async function pumpStream(fetchResponse, res) {
-  const reader = fetchResponse.body.getReader();
-
-  setCors(res);
-  res.setHeader('Content-Type',      'text/event-stream');
-  res.setHeader('Cache-Control',     'no-cache, no-transform');
-  res.setHeader('Connection',        'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.status(200);
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(value);
-    }
-  } catch (err) {
-    console.error('[OmniVibe] Stream pump error:', err.message);
-  } finally {
-    res.end();
-  }
 }
 
 /* ── Request validation ──────────────────────────────── */
@@ -261,64 +293,37 @@ module.exports = async function handler(req, res) {
     const data = await callWithRotation(payload);
     const totalTime = ((Date.now() - requestStart) / 1000).toFixed(2);
 
-    if (stream) {
-      // Cerebras streaming desteği varsa pump et, yoksa non-stream döndür
-      if (data && data.choices && data.choices[0]) {
-        const choice = data.choices[0];
-        const streamData = {
-          id: data.id,
-          object: 'chat.completion',
-          created: data.created,
-          model: data.model,
-          choices: [{
-            index: 0,
-            message: {
-              role: 'assistant',
-              content: choice.message.content,
-              reasoning: choice.message.reasoning || null
-            },
-            finish_reason: choice.finish_reason
-          }],
-          usage: data.usage,
-          timing: {
-            ...data.time_info,
-            totalRequestTime: parseFloat(totalTime)
-          },
-          sessionId: sessionId
-        };
-        jsonRes(res, 200, streamData);
-      }
-    } else {
-      const choice = data.choices[0];
-      const result = {
-        id: data.id,
-        object: 'chat.completion',
-        created: data.created,
-        model: data.model,
-        choices: [{
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: choice.message.content,
-            reasoning: choice.message.reasoning || null
-          },
-          finish_reason: choice.finish_reason
-        }],
-        usage: data.usage,
-        timing: {
-          ...data.time_info,
-          totalRequestTime: parseFloat(totalTime)
+    const choice = data.choices[0];
+    const result = {
+      id: data.id,
+      object: 'chat.completion',
+      created: data.created,
+      model: data.model,
+      choices: [{
+        index: 0,
+        message: {
+          role: 'assistant',
+          content: choice.message.content,
+          reasoning: choice.message.reasoning || null
         },
-        sessionId: sessionId
-      };
-      jsonRes(res, 200, result);
-    }
+        finish_reason: choice.finish_reason
+      }],
+      usage: data.usage,
+      timing: {
+        ...data.time_info,
+        totalRequestTime: parseFloat(totalTime)
+      },
+      sessionId: sessionId
+    };
+
+    jsonRes(res, 200, result);
+
   } catch (err) {
     const totalTime = ((Date.now() - requestStart) / 1000).toFixed(2);
     console.error('[OmniVibe] Handler error:', err.message);
     jsonRes(res, 503, {
       error: err.message,
-      tip:   'CEREBRAS_API_KEY_1...KEY_7 ortam değişkenlerini kontrol edin. (cloud.cerebras.ai)',
+      tip:   'CEREBRAS_API_KEY_1...KEY_7 ortam değişkenlerini kontrol edin. Key'ler csk_ ile başlamalı. (cloud.cerebras.ai)',
       sessionId: sessionId,
       elapsedTime: parseFloat(totalTime)
     });
