@@ -32,22 +32,26 @@ let roundRobinIndex = 0;
 ──────────────────────────────────────────────────────*/
 function getApiKeys() {
   const keys = [];
-  for (let i = 1; i <= 7; i++) {
+  for (let i = 1; i <= 10; i++) {
     const key = process.env[`CEREBRAS_API_KEY_${i}`];
     if (key && key.trim() && key.trim().startsWith('csk_')) keys.push(key.trim());
   }
-  // Fallback: tek bir CEREBRAS_API_KEY de kabul edilir
   if (keys.length === 0 && process.env.CEREBRAS_API_KEY) {
     const fallback = process.env.CEREBRAS_API_KEY.trim();
     if (fallback.startsWith('csk_')) keys.push(fallback);
   }
+  // DEBUG: env var'ları logla (sadece prefix, güvenli)
+  if (keys.length === 0) {
+    console.log('[OmniVibe DEBUG] CEREBRAS ile ilgili env varlar:');
+    Object.keys(process.env).forEach(k => {
+      if (k.includes('CEREBRAS') || k.includes('API_KEY')) {
+        const v = process.env[k];
+        console.log(`  ${k}: ${v ? v.slice(0, 10) + '...' : 'BOS'}`);
+      }
+    });
+  }
   return keys;
 }
-
-/* ── Round-Robin başlangıç index'ini hesapla ─────────
-   Her istek bir sonraki key'den başlar.
-   429 gelirse o key'i atla, sıradakine geç.
-──────────────────────────────────────────────────────*/
 function getStartIndex(keys) {
   const idx = roundRobinIndex % keys.length;
   roundRobinIndex = (roundRobinIndex + 1) % keys.length;
@@ -166,7 +170,7 @@ async function callWithRotation(payload, attempt = 0) {
   const keys = getApiKeys();
 
   if (keys.length === 0) {
-    throw new Error('Hiç Cerebras API anahtarı bulunamadı. Vercel Environment Variables'e CEREBRAS_API_KEY_1 ekleyin. (cloud.cerebras.ai)');
+    throw new Error('API KEY BULUNAMADI! Vercel Dashboard > Project Settings > Environment Variables kısmına CEREBRAS_API_KEY_1, CEREBRAS_API_KEY_2... seklinde csk_ ile baslayan keyleri ekle. Keyler Production ve Preview environmentlarina atanmali. (cloud.cerebras.ai)');
   }
 
   if (attempt >= keys.length * 2) {
@@ -194,7 +198,7 @@ async function callWithRotation(payload, attempt = 0) {
       if (RETRY_STATUSES.includes(resp.status)) {
         const errBody = await resp.text();
         lastErr = new Error(`Key #${keyIdx + 1} HTTP ${resp.status}: ${errBody.slice(0, 150)}`);
-        console.warn(`⚠️ [OmniVibe] Key #${keyIdx + 1} başarısız (${resp.status}), sonrakine geçiliyor...`);
+        console.warn(`⚠️ [OmniVibe] Key #${keyIdx + 1} HTTP ${resp.status} hatasi, sonraki key deneniyor... Hata: ${errBody.slice(0, 100)}`);
         continue;
       }
 
@@ -255,6 +259,10 @@ module.exports = async function handler(req, res) {
       keys:        keys.length,
       roundRobin:  roundRobinIndex,
       keyPreviews: keys.map((k, i) => ({ index: i + 1, prefix: k.slice(0, 10) + '...' })),
+      envCheck:    {
+        cerebrasVarsFound: Object.keys(process.env).filter(k => k.includes('CEREBRAS')).length,
+        allEnvVars: Object.keys(process.env).filter(k => k.includes('CEREBRAS') || k.includes('API_KEY')),
+      },
       timestamp:   new Date().toISOString()
     });
     return;
@@ -323,7 +331,8 @@ module.exports = async function handler(req, res) {
     console.error('[OmniVibe] Handler error:', err.message);
     jsonRes(res, 503, {
       error: err.message,
-      tip:   'CEREBRAS_API_KEY_1...KEY_7 ortam değişkenlerini kontrol edin. Key'ler csk_ ile başlamalı. (cloud.cerebras.ai)',
+      tip:   'Vercel Dashboard > Environment Variables kismina git. CEREBRAS_API_KEY_1, CEREBRAS_API_KEY_2... seklinde csk_ ile baslayan keyleri ekle. Keyler Production + Preview environmentlarina atanmali. Sonra YENI DEPLOY yap (sadece redeploy yetmez, yeni commit gerek).',
+      debug: 'GET /api/generate endpointine istek atarak key sayisini kontrol edebilirsin.',
       sessionId: sessionId,
       elapsedTime: parseFloat(totalTime)
     });
