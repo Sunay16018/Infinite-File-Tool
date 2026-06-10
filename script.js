@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════
-   OmniVibe Studio — script.js
-   Frontend: Chat, Code Flow, Preview, ZIP Download
+   OmniVibe Studio — script.js v3.0
+   Monaco Editor + Gelişmiş Sandbox + Dosya Yönetimi + Kod Düzenleme
 ═══════════════════════════════════════════════════════ */
 
 'use strict';
@@ -9,15 +9,25 @@
    STATE
 ──────────────────────────────────────────────────────*/
 const State = {
-  messages:       [],          // conversation history [{role, content}]
-  files:          {},          // { filename: code_string }
-  activeFile:     null,        // currently viewed filename
+  messages:       [],
+  files:          {},
+  activeFile:     null,
   isLoading:      false,
-  currentTab:     'chat',      // 'chat' | 'code'  (mobile)
-  streamBuffer:   '',          // live streaming text
+  currentTab:     'chat',
+  streamBuffer:   '',
   tokenCount:     0,
-  shareUrl:       null,        // last generated share URL
-  shareId:        null,        // last share ID
+  shareUrl:       null,
+  shareId:        null,
+  monacoEditor:   null,
+  isMonacoReady:  false,
+  consoleLogs:    [],
+  editorDecorations: [],
+  undoStack:      {},
+  redoStack:      {},
+  lastSaved:      {},
+  projectName:    'omnivibe-project',
+  sessionId:      `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+  previewTimeout: null,
 };
 
 /* ────────────────────────────────────────────────────
@@ -26,86 +36,235 @@ const State = {
 const $ = id => document.getElementById(id);
 
 const DOM = {
-  chatMessages:   () => $('chat-messages'),
-  chatInput:      () => $('chat-input') || { value: '', style: {} },
-  sendBtn:        () => $('send-btn') || { classList: { add:()=>{}, remove:()=>{} }, disabled: false },
-  sendIcon:       () => $('send-icon') || { classList: { add:()=>{}, remove:()=>{} } },
-  loadingIcon:    () => $('loading-icon') || { classList: { add:()=>{}, remove:()=>{} } },
-  fileTabs:       () => $('file-tabs') || { innerHTML: '', appendChild: () => {} },
-  codeContent:    () => $('code-content') || { classList: { add:()=>{}, remove:()=>{} } },
-  codeHighlight:  () => $('code-highlight') || { removeAttribute: () => {}, textContent: '' },
-  codeEmptyState: () => $('code-empty-state') || { classList: { add:()=>{}, remove:()=>{} } },
-  codeFooter:     () => $('code-footer') || { style: {}, classList: { add:()=>{}, remove:()=>{} } },
-  activeFileName: () => $('active-file-name') || { textContent: '' },
-  lineCount:      () => $('line-count') || { textContent: '' },
-  streamCursor:   () => $('stream-cursor') || {},
-  noFilesHint:    () => $('no-files-hint') || { classList: { add:()=>{}, remove:()=>{} } },
-  fileCountBadge: () => $('file-count-badge') || { classList: { add:()=>{}, remove:()=>{} }, textContent: '' },
-  previewModal:   () => $('preview-modal') || { classList: { add:()=>{}, remove:()=>{} } },
-  previewIframe:  () => $('preview-iframe') || { srcdoc: '' },
-  tokenCounter:   () => $('token-counter') || { textContent: '' },
-  contextBar:     () => $('context-bar') || { classList: { add:()=>{}, remove:()=>{} }, style: {} },
-  contextLabel:   () => $('context-label') || { textContent: '' },
-  tabChat:        () => $('tab-chat') || { classList: { add:()=>{}, remove:()=>{} } },
-  tabCode:        () => $('tab-code') || { classList: { add:()=>{}, remove:()=>{} } },
-  shareLinkBar:   () => $('share-link-bar'),
-  shareLinkText:  () => $('share-link-text'),
-  shareBtnLabel:  () => $('share-btn-label'),
-  shareBtnIcon:   () => $('share-btn-icon'),
-  shareLoadIcon:  () => $('share-loading-icon'),
+  chatMessages:     () => $('chat-messages'),
+  chatInput:        () => $('chat-input'),
+  sendBtn:          () => $('send-btn'),
+  sendIcon:         () => $('send-icon'),
+  loadingIcon:      () => $('loading-icon'),
+  fileTabs:         () => $('file-tabs'),
+  codeContent:      () => $('code-content'),
+  codeHighlight:    () => $('code-highlight'),
+  codeEmptyState:   () => $('code-empty-state'),
+  codeFooter:       () => $('code-footer'),
+  activeFileName:   () => $('active-file-name'),
+  lineCount:        () => $('line-count'),
+  charCount:        () => $('char-count'),
+  cursorPosition:   () => $('cursor-position'),
+  editorLanguage:   () => $('editor-language'),
+  streamCursor:     () => $('stream-cursor'),
+  noFilesHint:      () => $('no-files-hint'),
+  fileCountBadge:   () => $('file-count-badge'),
+  previewModal:     () => $('preview-modal'),
+  previewIframe:    () => $('preview-iframe'),
+  livePreviewIframe:() => $('live-preview-iframe'),
+  tokenCounter:     () => $('token-counter'),
+  contextBar:       () => $('context-bar'),
+  contextLabel:     () => $('context-label'),
+  tabChat:          () => $('tab-chat'),
+  tabCode:          () => $('tab-code'),
+  tabPreview:       () => $('tab-preview'),
+  shareLinkBar:     () => $('share-link-bar'),
+  shareLinkText:    () => $('share-link-text'),
+  shareBtnLabel:    () => $('share-btn-label'),
+  shareBtnIcon:     () => $('share-btn-icon'),
+  shareLoadIcon:    () => $('share-loading-icon'),
+  monacoEditor:     () => $('monaco-editor'),
+  editorContainer:  () => $('editor-container'),
+  previewLoading:   () => $('preview-loading'),
+  previewStatus:    () => $('preview-status'),
+  consolePanel:     () => $('console-panel'),
+  consoleOutput:    () => $('console-output'),
+  contextMenu:      () => $('context-menu'),
 };
 
 /* ────────────────────────────────────────────────────
    SYSTEM PROMPT
 ──────────────────────────────────────────────────────*/
-const SYSTEM_PROMPT = `Sen OmniVibe Studio'nun hata kabul etmeyen, duygusuz ve %100 sonuç odaklı "Baş Yazılım Mimarı"sın. Seninle yapılan her etkileşimde aşağıdaki KIRMIZ ÇİZGİLERE uymak zorundasın.
+const SYSTEM_PROMPT = `Sen OmniVibe Studio'nun hata kabul etmeyen, duygusuz ve %100 sonuc odakli "Bas Yazilim Mimari"sin.
 
-### 🛑 KESİN YASAKLAR (Sıfır Tolerans):
-1. BOŞ MESAJ YASAKTIR: Kullanıcıya asla boş veya sadece emojiden oluşan bir yanıt dönemezsin.
-2. ÖZET GEÇMEK YASAKTIR: "// kodun devamı aynı" veya "// ... burayı doldur" gibi ifadeler kullanman sistemden atılmana sebep olur. Her şeyi yazacaksın.
-3. BAŞTAN BAŞLAMAK YASAKTIR: Kullanıcı "devam" dediğinde, önceki yazdıklarını tekrar etme. [FILE:] etiketini yeniden açma. Kaldığın son karakterden (değişken ismi, parantez, nokta fark etmez) itibaren devam et.
-4. MARKDOWN YASAKTIR: Kodları asla \`\`\` (backtick) içine alma. Sadece [FILE:] formatını kullan.
+### KESIN YASAKLAR:
+1. BOS MESAJ YASAKTIR
+2. OZET GECMEK YASAKTIR: "// kodun devami ayni" veya "// ... burayi doldur" kullanma
+3. BASLAN BASLAMAK YASAKTIR: "devam" dediginde kaldigin yerden devam et
+4. MARKDOWN YASAKTIR: Kodlari asla backtick icine alma
 
-### 📦 ZORUNLU ÇIKTI PROTOKOLÜ:
-Dosyaları SADECE bu yapıda ver, dışına çıkma:
+### ZORUNLU CIKTI PROTOKOLU:
+Dosyalari SADECE bu yapida ver:
 [FILE: dosya_adi.uzanti]
-// Kodun tam ve eksiksiz içeriği
+// Kodun tam ve eksiksiz icerigi
 [END_FILE]
 
-### ⚙️ OPERASYONEL KURALLAR:
-- AKILLI TAMAMLAMA: Bir dosya oluştururken, o dosyanın çalışması için gereken tüm bağımlılıkları (kütüphane linkleri, CSS dosyaları vb.) otomatik olarak ekle.
-- OTOMATİK DEVAM: Eğer kod çok uzunsa, mesajın sonunda "Devam etmek için 'd' yazın" de ve dur. 'd' geldiğinde kaldığın yerden karakteri karakterine devam et.
-- MODERNİZM: 2026 yılı standartlarında, en hızlı, en güvenli ve en şık (Glassmorphism, Dark UI) kodları üret.
+### OPERASYONEL KURALLAR:
+- AKILLI TAMAMLAMA: Bagimliliklari otomatik ekle
+- OTOMATIK DEVAM: Kod uzunsa "Devam etmek icin 'd' yazin" de
+- MODERNIZM: 2026 standartlarinda, Glassmorphism, Dark UI
+- TUM DOSYALARI TEK SEFERDE VER: Parcalama, her dosya tam ve eksiksiz olmali
 
-### 🌍 İLETİŞİM DİLİ:
-- Teknik Analiz/Açıklama: Türkçe.
-- Kod Mantığı/Değişkenler: İngilizce.
-- Kullanıcı Arayüzü (Butonlar, Uyarılar): Türkçe.
+### ILETISIM DILI:
+- Teknik Analiz: Turkce
+- Kod Mantigi: Ingilizce
+- UI: Turkce`;
 
-Şu andan itibaren bir yapay zeka gibi değil, hatasız bir kod makinesi gibi davran. Komut bekleniyor.`;
 /* ────────────────────────────────────────────────────
-   API CALL — with streaming support
+   MONACO EDITOR INIT
+──────────────────────────────────────────────────────*/
+function initMonacoEditor() {
+  if (State.isMonacoReady) return;
+
+  require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+
+  require(['vs/editor/editor.main'], () => {
+    monaco.editor.defineTheme('omnivibe-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '5A7A6A', fontStyle: 'italic' },
+        { token: 'keyword', foreground: '10B981', fontStyle: 'bold' },
+        { token: 'identifier', foreground: 'E2E8F0' },
+        { token: 'string', foreground: '67E8F9' },
+        { token: 'number', foreground: 'FBBF24' },
+        { token: 'tag', foreground: 'F87171' },
+        { token: 'attribute.name', foreground: 'FBBF24' },
+        { token: 'attribute.value', foreground: '67E8F9' },
+      ],
+      colors: {
+        'editor.background': '#050C09',
+        'editor.foreground': '#E2E8F0',
+        'editor.lineHighlightBackground': '#0D1F14',
+        'editor.selectionBackground': '#10B98130',
+        'editor.inactiveSelectionBackground': '#10B98115',
+        'editorCursor.foreground': '#10B981',
+        'editorLineNumber.foreground': '#334155',
+        'editorLineNumber.activeForeground': '#10B981',
+        'editorGutter.background': '#050C09',
+        'editorWidget.background': '#0D1F14',
+        'editorWidget.border': '#10B98130',
+        'input.background': '#112918',
+        'input.foreground': '#E2E8F0',
+        'input.border': '#10B98130',
+        'dropdown.background': '#0D1F14',
+        'dropdown.border': '#10B98130',
+        'list.activeSelectionBackground': '#10B98130',
+        'list.hoverBackground': '#112918',
+        'scrollbarSlider.background': '#10B98130',
+        'scrollbarSlider.hoverBackground': '#10B98150',
+      }
+    });
+
+    State.monacoEditor = monaco.editor.create(DOM.monacoEditor(), {
+      value: '',
+      language: 'javascript',
+      theme: 'omnivibe-dark',
+      fontSize: 13,
+      fontFamily: 'JetBrains Mono, monospace',
+      lineNumbers: 'on',
+      roundedSelection: false,
+      scrollBeyondLastLine: false,
+      minimap: { enabled: true, scale: 0.8 },
+      automaticLayout: true,
+      wordWrap: 'on',
+      wrappingIndent: 'same',
+      tabSize: 2,
+      insertSpaces: true,
+      formatOnPaste: true,
+      formatOnType: true,
+      renderWhitespace: 'selection',
+      bracketPairColorization: { enabled: true },
+      guides: { bracketPairs: true, indentation: true },
+      folding: true,
+      foldingHighlight: true,
+      showFoldingControls: 'always',
+      unfoldOnClickAfterEndOfLine: true,
+      quickSuggestions: true,
+      suggestOnTriggerCharacters: true,
+      acceptSuggestionOnEnter: 'on',
+      snippetSuggestions: 'top',
+      parameterHints: { enabled: true },
+      hover: { enabled: true },
+      links: true,
+      colorDecorators: true,
+      lightbulb: { enabled: true },
+      codeLens: true,
+      smoothScrolling: true,
+      cursorBlinking: 'smooth',
+      cursorSmoothCaretAnimation: 'on',
+      contextmenu: true,
+      mouseWheelZoom: true,
+      multiCursorModifier: 'ctrlCmd',
+      renderLineHighlight: 'all',
+      renderLineHighlightOnlyWhenFocus: false,
+      occurrencesHighlight: true,
+      selectionHighlight: true,
+      matchBrackets: 'always',
+      autoClosingBrackets: 'always',
+      autoClosingQuotes: 'always',
+      autoSurround: 'languageDefined',
+      dragAndDrop: true,
+      dropIntoEditor: { enabled: true },
+      pasteAs: { enabled: true },
+      stickyScroll: { enabled: true, maxLineCount: 5 },
+    });
+
+    State.monacoEditor.onDidChangeCursorPosition((e) => {
+      const pos = DOM.cursorPosition();
+      if (pos) pos.textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+    });
+
+    State.monacoEditor.onDidChangeModelContent(() => {
+      if (State.activeFile) {
+        const content = State.monacoEditor.getValue();
+        State.files[State.activeFile].content = content;
+        State.files[State.activeFile].isModified = true;
+        updateFileTabModified(State.activeFile, true);
+        updateEditorStats();
+        updateLivePreview();
+      }
+    });
+
+    State.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      App.saveFile();
+    });
+
+    State.monacoEditor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => {
+      App.formatCode();
+    });
+
+    State.monacoEditor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyH, () => {
+      State.monacoEditor.getAction('editor.action.startFindReplaceAction:').run();
+    });
+
+    State.isMonacoReady = true;
+    console.log('%c[OmniVibe] Monaco Editor hazir', 'color: #10b981');
+  });
+}
+
+/* ────────────────────────────────────────────────────
+   API CALL
 ──────────────────────────────────────────────────────*/
 async function callAPI(onChunk) {
   const response = await fetch('/api/generate', {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Id': State.sessionId,
+    },
     body: JSON.stringify({
-      messages:      State.messages,
-      system:        SYSTEM_PROMPT,
-      stream:        true,
+      messages: State.messages,
+      system: SYSTEM_PROMPT,
+      stream: true,
+      temperature: 0.3,
+      max_tokens: 8192,
     }),
   });
 
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: 'Sunucu hatası' }));
+    const err = await response.json().catch(() => ({ error: 'Sunucu hatasi' }));
     throw new Error(err.error || `HTTP ${response.status}`);
   }
 
-  // Handle streaming response
-  const reader  = response.body.getReader();
+  const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let   full    = '';
+  let full = '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -121,10 +280,9 @@ async function callAPI(onChunk) {
 
       try {
         const parsed = JSON.parse(data);
-        const delta  = parsed.choices?.[0]?.delta?.content || '';
+        const delta = parsed.choices?.[0]?.delta?.content || '';
         if (delta) {
           full += delta;
-          // AI'nın gönderdiği ``` tırnaklarını ve dil isimlerini (html, js vb.) anlık temizle:
           const cleanFull = full.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '');
           onChunk(delta, cleanFull);
         }
@@ -138,19 +296,17 @@ async function callAPI(onChunk) {
 }
 
 /* ────────────────────────────────────────────────────
-   FILE PARSING  [FILE: name] ... [END_FILE]
+   FILE PARSING
 ──────────────────────────────────────────────────────*/
 function parseFiles(text) {
   const fileRegex = /\[FILE:\s*([^\]]+)\]\s*([\s\S]*?)\[END_FILE\]/g;
-  const found     = {};
-  let   match;
+  const found = {};
+  let match;
 
   while ((match = fileRegex.exec(text)) !== null) {
     const filename = match[1].trim();
-    // AI'nın eklediği o gereksiz ```html ve ``` işaretlerini burada temizliyoruz:
     const rawContent = match[2].trim();
     const cleanContent = rawContent.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim();
-    
     found[filename] = cleanContent;
   }
   return found;
@@ -158,9 +314,7 @@ function parseFiles(text) {
 
 function stripFileBlocks(text) {
   return text
-    // 1. Önce AI'nın eklediği ```html ve ``` işaretlerini siler
     .replace(/```[a-z]*\n?/gi, '').replace(/```/g, '')
-    // 2. Sonra [FILE] bloklarını temizler
     .replace(/\[FILE:\s*[^\]]+\][\s\S]*?\[END_FILE\]/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -171,15 +325,54 @@ function stripFileBlocks(text) {
 ──────────────────────────────────────────────────────*/
 function getFileColor(name) {
   const ext = name.split('.').pop().toLowerCase();
-  const map  = { html:'dot-html', css:'dot-css', js:'dot-js', ts:'dot-ts',
-                 json:'dot-json', md:'dot-md', py:'dot-py' };
+  const map = {
+    html: 'dot-html', htm: 'dot-html',
+    css: 'dot-css',
+    js: 'dot-js', mjs: 'dot-js',
+    ts: 'dot-ts', tsx: 'dot-ts',
+    jsx: 'dot-js',
+    json: 'dot-json',
+    md: 'dot-md',
+    py: 'dot-py',
+    java: 'dot-java',
+    c: 'dot-c', cpp: 'dot-cpp', h: 'dot-c',
+    go: 'dot-go',
+    rs: 'dot-rs',
+    php: 'dot-php',
+    sql: 'dot-sql',
+    sh: 'dot-sh', bash: 'dot-sh',
+    yaml: 'dot-yaml', yml: 'dot-yaml',
+    xml: 'dot-xml',
+    svg: 'dot-svg',
+    png: 'dot-img', jpg: 'dot-img', jpeg: 'dot-img', gif: 'dot-img', webp: 'dot-img',
+    txt: 'dot-txt',
+  };
   return map[ext] || 'dot-default';
 }
 
-function getLang(name) {
+function getMonacoLanguage(name) {
   const ext = name.split('.').pop().toLowerCase();
-  const map = { html:'html', css:'css', js:'javascript', ts:'typescript',
-                json:'json', md:'markdown', py:'python', sh:'bash', txt:'plaintext' };
+  const map = {
+    html: 'html', htm: 'html',
+    css: 'css',
+    js: 'javascript', mjs: 'javascript',
+    ts: 'typescript', tsx: 'typescript',
+    jsx: 'javascript',
+    json: 'json',
+    md: 'markdown',
+    py: 'python',
+    java: 'java',
+    c: 'c', cpp: 'cpp', h: 'c',
+    go: 'go',
+    rs: 'rust',
+    php: 'php',
+    sql: 'sql',
+    sh: 'shell', bash: 'shell',
+    yaml: 'yaml', yml: 'yaml',
+    xml: 'xml',
+    svg: 'xml',
+    txt: 'plaintext',
+  };
   return map[ext] || 'plaintext';
 }
 
@@ -240,8 +433,6 @@ function appendTypingIndicator() {
 function updateTypingIndicator(div, textSoFar) {
   const bubble = div.querySelector('.msg-bubble-streaming');
   if (!bubble) return;
-
-  // Show short preview of what's being written
   const preview = stripFileBlocks(textSoFar).slice(0, 300);
   bubble.innerHTML = `
     <div class="text-xs text-emerald-400 font-semibold mb-1 font-mono">OmniVibe AI</div>
@@ -282,15 +473,13 @@ function finalizeTypingIndicator(div, fullText, parsedFiles) {
   if (fileNames.length > 0) {
     const chipsDiv = document.createElement('div');
     chipsDiv.className = 'flex flex-wrap gap-1.5 mt-2';
-    
     fileNames.forEach(n => {
       const btn = document.createElement('button');
       btn.className = 'file-chip';
       btn.innerHTML = `<span class="w-2 h-2 rounded-full ${getFileColor(n)}"></span>${escapeHtml(n)}`;
       btn.onclick = () => App.viewFile(n);
-      chipsDiv.appendChild(btn); 
+      chipsDiv.appendChild(btn);
     });
-    
     bubble.appendChild(chipsDiv);
   }
 
@@ -299,7 +488,7 @@ function finalizeTypingIndicator(div, fullText, parsedFiles) {
   msgDiv.appendChild(wrapper);
 
   const container = DOM.chatMessages();
-  if (container && container.appendChild) {
+  if (container) {
     container.appendChild(msgDiv);
     scrollToBottom();
   }
@@ -320,13 +509,12 @@ function appendErrorMessage(errText) {
         <p class="msg-text text-red-300">${escapeHtml(errText)}</p>
       </div>
     </div>`;
-  const errContainer = DOM.chatMessages();
-  if (errContainer) errContainer.appendChild(div);
+  const container = DOM.chatMessages();
+  if (container) container.appendChild(div);
   scrollToBottom();
 }
 
 function formatMsgText(text) {
-  // Önce escape et, sonra güvenli markdown dönüşümü
   const escaped = escapeHtml(text);
   return escaped
     .replace(/\*\*([^*]+)\*\*/g, '<strong class="text-emerald-300">$1</strong>')
@@ -347,15 +535,14 @@ function escapeHtml(str) {
    UI — FILE TABS & CODE VIEW
 ──────────────────────────────────────────────────────*/
 function renderFileTabs() {
-  const tabs  = DOM.fileTabs();
+  const tabs = DOM.fileTabs();
   const names = Object.keys(State.files);
-  const hint  = DOM.noFilesHint();
+  const hint = DOM.noFilesHint();
   const badge = DOM.fileCountBadge();
 
   if (names.length === 0) {
     hint.classList.remove('hidden');
     badge.classList.add('hidden');
-    // rebuild just the hint
     tabs.innerHTML = '';
     tabs.appendChild(hint);
     return;
@@ -367,57 +554,100 @@ function renderFileTabs() {
 
   tabs.innerHTML = '';
   names.forEach(name => {
+    const file = State.files[name];
+    const isModified = file.isModified;
     const btn = document.createElement('button');
     btn.className = `file-tab ${name === State.activeFile ? 'active' : ''}`;
     btn.dataset.file = name;
     btn.innerHTML = `
       <span class="tab-dot ${getFileColor(name)}"></span>
-      ${escapeHtml(name)}`;
+      <span class="tab-name">${escapeHtml(name)}</span>
+      ${isModified ? '<span class="tab-modified">●</span>' : ''}
+      <span class="tab-close" onclick="event.stopPropagation(); App.closeFile('${name}')">×</span>`;
     btn.onclick = () => App.viewFile(name);
     tabs.appendChild(btn);
   });
 }
 
+function updateFileTabModified(filename, isModified) {
+  const tab = document.querySelector(`.file-tab[data-file="${filename}"]`);
+  if (!tab) return;
+  const nameSpan = tab.querySelector('.tab-name');
+  if (!nameSpan) return;
+  let modSpan = tab.querySelector('.tab-modified');
+  if (isModified && !modSpan) {
+    modSpan = document.createElement('span');
+    modSpan.className = 'tab-modified';
+    modSpan.textContent = '●';
+    nameSpan.after(modSpan);
+  } else if (!isModified && modSpan) {
+    modSpan.remove();
+  }
+}
+
+function updateEditorStats() {
+  if (!State.activeFile || !State.files[State.activeFile]) return;
+  const content = State.files[State.activeFile].content;
+  const lines = content.split('\n').length;
+  const chars = content.length;
+
+  const lineCount = DOM.lineCount();
+  const charCount = DOM.charCount();
+  const langSpan = DOM.editorLanguage();
+
+  if (lineCount) lineCount.textContent = `${lines} satir`;
+  if (charCount) charCount.textContent = `${chars} karakter`;
+  if (langSpan) langSpan.textContent = getMonacoLanguage(State.activeFile).toUpperCase();
+}
+
 function renderCodeView(filename) {
-  const code     = State.files[filename] || '';
-  const lang     = getLang(filename);
-  const lines    = code.split('\n').length;
-  const hl       = DOM.codeHighlight();
-  const pre      = DOM.codeContent();
-  const empty    = DOM.codeEmptyState();
-  const footer   = DOM.codeFooter();
+  const file = State.files[filename];
+  if (!file) return;
 
-  // Highlight
-  hl.removeAttribute('class');
-  hl.className = `language-${lang}`;
-  hl.textContent = code;
-  hljs.highlightElement(hl);
+  const empty = DOM.codeEmptyState();
+  const monacoDiv = DOM.monacoEditor();
+  const footer = DOM.codeFooter();
 
-  pre.classList.remove('hidden');
   empty.classList.add('hidden');
+  monacoDiv.classList.remove('hidden');
   footer.classList.remove('hidden');
   footer.style.display = 'flex';
 
-  DOM.activeFileName().textContent = filename;
-  DOM.lineCount().textContent = `${lines} satır`;
+  if (State.isMonacoReady && State.monacoEditor) {
+    const oldModel = State.monacoEditor.getModel();
+    const model = monaco.editor.createModel(
+      file.content,
+      getMonacoLanguage(filename)
+    );
+    State.monacoEditor.setModel(model);
+    if (oldModel) oldModel.dispose();
+    State.monacoEditor.focus();
+  }
 
-  // Update tab active states
+  DOM.activeFileName().textContent = filename;
+  updateEditorStats();
+
   document.querySelectorAll('.file-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.file === filename);
   });
+
+  updateLivePreview();
 }
 
 function updateFilesFromResponse(parsedFiles) {
   let firstNew = null;
   for (const [name, code] of Object.entries(parsedFiles)) {
     const isNew = !State.files[name];
-    State.files[name] = code;
+    State.files[name] = {
+      content: code,
+      language: getMonacoLanguage(name),
+      isModified: false,
+    };
     if (isNew && !firstNew) firstNew = name;
   }
 
   renderFileTabs();
 
-  // Auto-open first new file, or first file
   if (firstNew) {
     State.activeFile = firstNew;
   } else if (!State.activeFile && Object.keys(State.files).length > 0) {
@@ -428,78 +658,189 @@ function updateFilesFromResponse(parsedFiles) {
     renderCodeView(State.activeFile);
   }
 
-  // On mobile, show code tab if files were generated
   if (firstNew && window.innerWidth < 768) {
     App.switchTab('code');
   }
 }
 
 /* ────────────────────────────────────────────────────
-   KOD ÇALIŞTIRMA (BACKEND SİMÜLASYONU)
+   LIVE PREVIEW SYSTEM
 ──────────────────────────────────────────────────────*/
-function executeActiveCode() {
-  const filename = State.activeFile;
-  const code = State.files[filename];
+function buildPreviewDoc() {
+  const fileNames = Object.keys(State.files);
+  const htmlFile = fileNames.find(n => n === 'index.html')
+    || fileNames.find(n => n.endsWith('.html'));
 
-  if (!filename || !code) return;
-
-  // HTML ise Önizleme sekmesine geç
-  if (filename.endsWith('.html')) {
-    App.switchTab('preview');
-    return;
+  if (!htmlFile) {
+    const jsFile = fileNames.find(n => n.endsWith('.js'));
+    const cssFile = fileNames.find(n => n.endsWith('.css'));
+    let doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">`;
+    if (cssFile) doc += `<style>${State.files[cssFile].content}</style>`;
+    doc += `</head><body>`;
+    if (jsFile) doc += `<script>${State.files[jsFile].content}<\/script>`;
+    doc += `</body></html>`;
+    return doc;
   }
 
-  // JS ise tarayıcı konsolunda simüle et
-  if (filename.endsWith('.js')) {
+  let html = State.files[htmlFile].content;
+
+  html = html.replace(/<link[^>]+href=["']([^"']+\.css)["'][^>]*>/gi, (match, href) => {
+    const cssName = href.split('/').pop();
+    const cssFile = fileNames.find(n => n.endsWith(cssName) || n === cssName);
+    if (cssFile) return `<style>\n${State.files[cssFile].content}\n</style>`;
+    return match;
+  });
+
+  html = html.replace(/<script[^>]+src=["']([^"']+\.js)["'][^>]*><\/script>/gi, (match, src) => {
+    const jsName = src.split('/').pop();
+    const jsFile = fileNames.find(n => n.endsWith(jsName) || n === jsName);
+    if (jsFile) return `<script>\n${State.files[jsFile].content}\n<\/script>`;
+    return match;
+  });
+
+  const consoleInterceptor = `
+<script>
+(function() {
+  const originalLog = console.log;
+  const originalError = console.error;
+  const originalWarn = console.warn;
+  const originalInfo = console.info;
+
+  function sendToParent(type, args) {
     try {
-      console.log(`%c[OmniVibe] ${filename} çalıştırılıyor...`, 'color: #10b981; font-weight: bold;');
-      // Yeni bir fonksiyon oluşturup çalıştırır
-      const run = new Function(code);
-      run();
-      alert(`${filename} başarıyla çalıştırıldı! Sonuçları tarayıcı konsolunda (F12) görebilirsin.`);
-    } catch (err) {
-      alert("Kod hatası: " + err.message);
+      const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' ');
+      window.parent.postMessage({ type: 'console', level: type, message: msg, timestamp: Date.now() }, '*');
+    } catch(e) {}
+  }
+
+  console.log = function(...args) { sendToParent('log', args); originalLog.apply(console, args); };
+  console.error = function(...args) { sendToParent('error', args); originalError.apply(console, args); };
+  console.warn = function(...args) { sendToParent('warn', args); originalWarn.apply(console, args); };
+  console.info = function(...args) { sendToParent('info', args); originalInfo.apply(console, args); };
+
+  window.onerror = function(msg, url, line, col, err) {
+    sendToParent('error', [\`\${msg} (satir \${line}, kolon \${col})\`]);
+    return false;
+  };
+
+  window.onunhandledrejection = function(e) {
+    sendToParent('error', [\`Unhandled Promise Rejection: \${e.reason}\`]);
+  };
+})();
+<\/script>`;
+
+  if (html.includes('</head>')) {
+    html = html.replace('</head>', consoleInterceptor + '\n</head>');
+  } else if (html.includes('<body>')) {
+    html = html.replace('<body>', '<body>' + consoleInterceptor);
+  }
+
+  return html;
+}
+
+function updateLivePreview() {
+  const iframe = DOM.livePreviewIframe();
+  if (!iframe) return;
+
+  const fileNames = Object.keys(State.files);
+  const hasHtml = fileNames.some(n => n.endsWith('.html'));
+  const hasJs = fileNames.some(n => n.endsWith('.js'));
+  const hasCss = fileNames.some(n => n.endsWith('.css'));
+
+  if (!hasHtml && !hasJs && !hasCss) return;
+
+  const loading = DOM.previewLoading();
+  if (loading) loading.classList.remove('hidden');
+
+  clearTimeout(State.previewTimeout);
+  State.previewTimeout = setTimeout(() => {
+    const doc = buildPreviewDoc();
+    iframe.srcdoc = doc;
+    if (loading) loading.classList.add('hidden');
+
+    const status = DOM.previewStatus();
+    if (status) {
+      status.classList.remove('bg-red-500');
+      status.classList.add('bg-emerald-500');
     }
-  } else {
-    alert("Şu an sadece .html ve .js dosyaları direkt çalıştırılabilir. .sk veya .py için backend entegrasyonu gerekir.");
+  }, 800);
+}
+
+/* ────────────────────────────────────────────────────
+   CONSOLE SYSTEM
+──────────────────────────────────────────────────────*/
+function initConsoleListener() {
+  window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'console') {
+      addConsoleEntry(e.data.level, e.data.message, e.data.timestamp);
+    }
+  });
+}
+
+function addConsoleEntry(level, message, timestamp) {
+  const output = DOM.consoleOutput();
+  if (!output) return;
+
+  const entry = document.createElement('div');
+  const time = new Date(timestamp).toLocaleTimeString('tr-TR', { hour12: false });
+  const levelColors = {
+    log: 'text-slate-300',
+    error: 'text-red-400',
+    warn: 'text-amber-400',
+    info: 'text-cyan-400',
+  };
+
+  entry.className = `flex gap-2 ${levelColors[level] || 'text-slate-300'}`;
+  entry.innerHTML = `
+    <span class="text-slate-600 flex-shrink-0">[${time}]</span>
+    <span class="break-all">${escapeHtml(message)}</span>`;
+
+  output.appendChild(entry);
+  output.scrollTop = output.scrollHeight;
+
+  if (level === 'error') {
+    const panel = DOM.consolePanel();
+    if (panel) {
+      panel.classList.remove('hidden');
+      panel.style.display = 'flex';
+    }
   }
 }
 
 /* ────────────────────────────────────────────────────
-   LIVE STREAMING CODE UPDATE
+   STREAMING CODE UPDATE
 ──────────────────────────────────────────────────────*/
 let streamPartialBuffer = '';
 
 function onStreamChunk(delta, fullSoFar) {
   streamPartialBuffer = fullSoFar;
-
-  // Parse partial files and update code view live
   const partial = parseFiles(fullSoFar);
+
   if (Object.keys(partial).length > 0) {
-    // Update files silently (no tab re-render for each chunk)
     let firstNew = null;
     for (const [name, code] of Object.entries(partial)) {
       const isNew = !State.files[name];
       if (isNew) firstNew = name;
-      State.files[name] = code;
+      State.files[name] = {
+        content: code,
+        language: getMonacoLanguage(name),
+        isModified: false,
+      };
     }
 
-    // Re-render tabs
     renderFileTabs();
 
-    // Auto-activate first new file
     if (firstNew) State.activeFile = firstNew;
     else if (!State.activeFile) State.activeFile = Object.keys(State.files)[0];
 
-    // Update code view (lightweight, no full re-highlight during stream)
     if (State.activeFile && State.files[State.activeFile]) {
-      const pre = DOM.codeContent();
-      const hl  = DOM.codeHighlight();
-      pre.classList.remove('hidden');
-      DOM.codeEmptyState().classList.add('hidden');
-      hl.textContent = State.files[State.activeFile];
-      // Throttle highlight during streaming
-      if (Math.random() < 0.08) hljs.highlightElement(hl);
+      const file = State.files[State.activeFile];
+      if (State.isMonacoReady && State.monacoEditor) {
+        const currentModel = State.monacoEditor.getModel();
+        if (currentModel && currentModel.getValue() !== file.content) {
+          State.monacoEditor.setValue(file.content);
+        }
+      }
     }
   }
 }
@@ -513,21 +854,17 @@ async function sendMessage(text) {
   State.isLoading = true;
   streamPartialBuffer = '';
 
-  // Update UI
   const input = DOM.chatInput();
   input.value = '';
   input.style.height = '40px';
   setLoadingState(true);
 
-  // Add user message to history
   State.messages.push({ role: 'user', content: text });
   appendUserMessage(text);
 
-  // Update token counter
   State.tokenCount += countTokensApprox(text);
   updateTokenCounter();
 
-  // Show typing indicator
   const indicator = appendTypingIndicator();
 
   let fullResponse = '';
@@ -538,24 +875,16 @@ async function sendMessage(text) {
       onStreamChunk(delta, full);
     });
 
-    // Final parse
     const parsedFiles = parseFiles(fullResponse);
 
-    // Update state
     State.messages.push({ role: 'assistant', content: fullResponse });
     State.tokenCount += countTokensApprox(fullResponse);
     updateTokenCounter();
-
-    // Update context bar
     updateContextBar();
 
-    // Finalize UI
     finalizeTypingIndicator(indicator, fullResponse, parsedFiles);
-
-    // Full file update + render
     updateFilesFromResponse(parsedFiles);
 
-    // Final syntax highlight
     if (State.activeFile) {
       renderCodeView(State.activeFile);
     }
@@ -563,8 +892,7 @@ async function sendMessage(text) {
   } catch (err) {
     indicator.remove();
     const msg = err.message || 'Bilinmeyen hata';
-    appendErrorMessage(`API Hatası: ${msg}`);
-    // Remove last user message from history on error
+    appendErrorMessage(`API Hatasi: ${msg}`);
     State.messages.pop();
     App.toast(`Hata: ${msg}`, true);
   } finally {
@@ -575,10 +903,10 @@ async function sendMessage(text) {
 }
 
 function setLoadingState(loading) {
-  const btn    = DOM.sendBtn();
-  const sIcon  = DOM.sendIcon();
-  const lIcon  = DOM.loadingIcon();
-  const input  = DOM.chatInput();
+  const btn = DOM.sendBtn();
+  const sIcon = DOM.sendIcon();
+  const lIcon = DOM.loadingIcon();
+  const input = DOM.chatInput();
 
   if (loading) {
     btn.disabled = true;
@@ -602,55 +930,30 @@ function updateTokenCounter() {
 }
 
 function updateContextBar() {
-  const bar   = DOM.contextBar();
+  const bar = DOM.contextBar();
   const label = DOM.contextLabel();
   if (State.messages.length > 1) {
     bar.classList.remove('hidden');
     bar.style.display = 'flex';
-    label.textContent = `${State.messages.length} mesaj | Bağlam aktif`;
+    label.textContent = `${State.messages.length} mesaj | Baglam aktif`;
   }
 }
 
 /* ────────────────────────────────────────────────────
    PREVIEW
 ──────────────────────────────────────────────────────*/
-function buildPreviewDoc() {
-  // Merge files into a single HTML document for preview
-  const fileNames = Object.keys(State.files);
-  const htmlFile  = fileNames.find(n => n.endsWith('.html') || n === 'index.html')
-                 || fileNames.find(n => n.endsWith('.html'));
-
-  if (!htmlFile) {
-    // No HTML? Try to show the first JS/CSS in a wrapper
-    const jsFile  = fileNames.find(n => n.endsWith('.js'));
-    const cssFile = fileNames.find(n => n.endsWith('.css'));
-    let doc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">`;
-    if (cssFile) doc += `<style>${State.files[cssFile]}</style>`;
-    doc += `</head><body>`;
-    if (jsFile)  doc += `<script>${State.files[jsFile]}<\/script>`;
-    doc += `</body></html>`;
-    return doc;
+function openPreviewFullscreen() {
+  const fileCount = Object.keys(State.files).length;
+  if (fileCount === 0) {
+    App.toast('Onizlenecek dosya yok', true);
+    return;
   }
 
-  let html = State.files[htmlFile];
-
-  // Inline CSS files (e.g. href="style.css")
-  html = html.replace(/<link[^>]+href=["']([^"']+\.css)["'][^>]*>/gi, (match, href) => {
-    const cssName = href.split('/').pop();
-    const cssFile = fileNames.find(n => n.endsWith(cssName) || n === cssName);
-    if (cssFile) return `<style>\n${State.files[cssFile]}\n</style>`;
-    return match;
-  });
-
-  // Inline JS files (e.g. src="script.js")
-  html = html.replace(/<script[^>]+src=["']([^"']+\.js)["'][^>]*><\/script>/gi, (match, src) => {
-    const jsName = src.split('/').pop();
-    const jsFile = fileNames.find(n => n.endsWith(jsName) || n === jsName);
-    if (jsFile) return `<script>\n${State.files[jsFile]}\n<\/script>`;
-    return match;
-  });
-
-  return html;
+  const doc = buildPreviewDoc();
+  const iframe = DOM.previewIframe();
+  iframe.srcdoc = doc;
+  DOM.previewModal().classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
 }
 
 /* ────────────────────────────────────────────────────
@@ -659,28 +962,27 @@ function buildPreviewDoc() {
 async function sharePreview() {
   const fileCount = Object.keys(State.files).length;
   if (fileCount === 0) {
-    App.toast('Önce bir şeyler üret! 💡', true);
+    App.toast('Once bir seyler uret!', true);
     return;
   }
 
-  // Set button to loading state
-  const btnLabel  = DOM.shareBtnLabel();
-  const btnIcon   = DOM.shareBtnIcon();
-  const loadIcon  = DOM.shareLoadIcon();
-  const shareBtn  = $('btn-share-preview');
+  const btnLabel = DOM.shareBtnLabel();
+  const btnIcon = DOM.shareBtnIcon();
+  const loadIcon = DOM.shareLoadIcon();
+  const shareBtn = $('btn-share-preview');
 
   if (shareBtn) shareBtn.disabled = true;
-  if (btnLabel) btnLabel.textContent = 'Yükleniyor...';
-  if (btnIcon)  btnIcon.classList.add('hidden');
+  if (btnLabel) btnLabel.textContent = 'Yukleniyor...';
+  if (btnIcon) btnIcon.classList.add('hidden');
   if (loadIcon) loadIcon.classList.remove('hidden');
 
   try {
     const html = buildPreviewDoc();
 
     const resp = await fetch('/api/share', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ html }),
+      body: JSON.stringify({ html }),
     });
 
     if (!resp.ok) {
@@ -690,42 +992,37 @@ async function sharePreview() {
 
     const data = await resp.json();
     State.shareUrl = data.url;
-    State.shareId  = data.id;
+    State.shareId = data.id;
 
-    // Show share link bar
-    const bar  = DOM.shareLinkBar();
+    const bar = DOM.shareLinkBar();
     const text = DOM.shareLinkText();
-    if (bar)  { bar.classList.add('visible'); }
-    if (text) { text.textContent = data.url; }
+    if (bar) { bar.classList.remove('hidden'); bar.style.display = 'flex'; }
+    if (text) text.textContent = data.url;
 
-    // Update preview url bar
     const urlBar = $('preview-url-bar');
     if (urlBar) urlBar.textContent = data.url;
 
-    // Update TTL badge
     const ttlBadge = $('share-ttl-badge');
-    if (ttlBadge) ttlBadge.textContent = '24s geçerli';
+    if (ttlBadge) ttlBadge.textContent = '24s gecerli';
 
-    // Auto-copy to clipboard
     try {
       await navigator.clipboard.writeText(data.url);
-      App.toast('Link kopyalandı! 24 saat geçerli ✓');
+      App.toast('Link kopyalandi! 24 saat gecerli');
     } catch {
-      App.toast('Link oluşturuldu! Manuel kopyalayın.');
+      App.toast('Link olusturuldu! Manuel kopyalayin.');
     }
 
-    // Reset button
-    if (btnLabel) btnLabel.textContent = 'Paylaş';
-    if (btnIcon)  btnIcon.classList.remove('hidden');
+    if (btnLabel) btnLabel.textContent = 'Paylas';
+    if (btnIcon) btnIcon.classList.remove('hidden');
     if (loadIcon) loadIcon.classList.add('hidden');
     if (shareBtn) shareBtn.disabled = false;
 
   } catch (err) {
-    if (btnLabel) btnLabel.textContent = 'Paylaş';
-    if (btnIcon)  btnIcon.classList.remove('hidden');
+    if (btnLabel) btnLabel.textContent = 'Paylas';
+    if (btnIcon) btnIcon.classList.remove('hidden');
     if (loadIcon) loadIcon.classList.add('hidden');
     if (shareBtn) shareBtn.disabled = false;
-    App.toast('Paylaşım hatası: ' + err.message, true);
+    App.toast('Paylasim hatasi: ' + err.message, true);
   }
 }
 
@@ -733,30 +1030,28 @@ async function copyShareLink() {
   const url = State.shareUrl;
   if (!url) return;
 
-  const btn         = $('share-link-bar')?.querySelector('.share-copy-btn');
-  const copyIcon    = $('copy-icon');
-  const copiedIcon  = $('copied-icon');
-  const copyLabel   = $('copy-btn-label');
+  const btn = $('share-link-bar')?.querySelector('.share-copy-btn');
+  const copyIcon = $('copy-icon');
+  const copiedIcon = $('copied-icon');
+  const copyLabel = $('copy-btn-label');
 
   try {
     await navigator.clipboard.writeText(url);
-
-    // Visual feedback
-    if (btn)        btn.classList.add('copied');
-    if (copyIcon)   copyIcon.classList.add('hidden');
+    if (btn) btn.classList.add('copied');
+    if (copyIcon) copyIcon.classList.add('hidden');
     if (copiedIcon) copiedIcon.classList.remove('hidden');
-    if (copyLabel)  copyLabel.textContent = 'Kopyalandı!';
+    if (copyLabel) copyLabel.textContent = 'Kopyalandi!';
 
-    App.toast('Link kopyalandı! ✓');
+    App.toast('Link kopyalandi!');
 
     setTimeout(() => {
-      if (btn)        btn.classList.remove('copied');
-      if (copyIcon)   copyIcon.classList.remove('hidden');
+      if (btn) btn.classList.remove('copied');
+      if (copyIcon) copyIcon.classList.remove('hidden');
       if (copiedIcon) copiedIcon.classList.add('hidden');
-      if (copyLabel)  copyLabel.textContent = 'Kopyala';
+      if (copyLabel) copyLabel.textContent = 'Kopyala';
     }, 2500);
   } catch {
-    App.toast('Kopyalama başarısız', true);
+    App.toast('Kopyalama basarisiz', true);
   }
 }
 
@@ -766,76 +1061,242 @@ async function copyShareLink() {
 async function downloadZip() {
   const fileCount = Object.keys(State.files).length;
   if (fileCount === 0) {
-    App.toast('Henüz indirılacak dosya yok!', true);
+    App.toast('Heniz indirilecek dosya yok!', true);
     return;
   }
 
   try {
     const zip = new JSZip();
-    const folder = zip.folder('omnivibe-project');
+    const folder = zip.folder(State.projectName);
 
-    for (const [name, code] of Object.entries(State.files)) {
-      folder.file(name, code);
+    for (const [name, file] of Object.entries(State.files)) {
+      folder.file(name, file.content);
     }
 
-    // Add a README
     const fileList = Object.keys(State.files).map(n => `- ${n}`).join('\n');
-    folder.file('README.md', `# OmniVibe Project\n\nOmniVibe Studio tarafından oluşturuldu.\n\n## Dosyalar\n\n${fileList}\n\n## Kullanım\n\nindex.html dosyasını bir tarayıcıda açın.\n`);
+    folder.file('README.md', `# ${State.projectName}\n\nOmniVibe Studio tarafindan olusturuldu.\n\n## Dosyalar\n\n${fileList}\n\n## Kullanim\n\nindex.html dosyasini bir tarayicide acin.\n`);
 
     const blob = await zip.generateAsync({
-      type:               'blob',
-      compression:        'DEFLATE',
+      type: 'blob',
+      compression: 'DEFLATE',
       compressionOptions: { level: 6 },
     });
 
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'omnivibe-project.zip';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${State.projectName}.zip`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    App.toast(`${fileCount} dosya ZIP olarak indirildi! ✓`);
+    App.toast(`${fileCount} dosya ZIP olarak indirildi!`);
   } catch (err) {
-    App.toast('ZIP oluşturma hatası: ' + err.message, true);
+    App.toast('ZIP olusturma hatasi: ' + err.message, true);
   }
 }
 
 /* ────────────────────────────────────────────────────
-   RESIZE PANEL (Desktop)
+   FILE OPERATIONS
+──────────────────────────────────────────────────────*/
+function addNewFile() {
+  const name = prompt('Dosya adi (orn: style.css, app.js):');
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+  if (State.files[trimmed]) {
+    App.toast('Bu dosya zaten var!', true);
+    return;
+  }
+  State.files[trimmed] = {
+    content: '',
+    language: getMonacoLanguage(trimmed),
+    isModified: true,
+  };
+  State.activeFile = trimmed;
+  renderFileTabs();
+  renderCodeView(trimmed);
+  App.toast(`Yeni dosya: ${trimmed}`);
+}
+
+function renameFile() {
+  if (!State.activeFile) {
+    App.toast('Once bir dosya secin', true);
+    return;
+  }
+  const newName = prompt('Yeni dosya adi:', State.activeFile);
+  if (!newName || !newName.trim() || newName.trim() === State.activeFile) return;
+  const trimmed = newName.trim();
+  if (State.files[trimmed]) {
+    App.toast('Bu isimde dosya zaten var!', true);
+    return;
+  }
+  State.files[trimmed] = State.files[State.activeFile];
+  delete State.files[State.activeFile];
+  State.activeFile = trimmed;
+  renderFileTabs();
+  renderCodeView(trimmed);
+  App.toast(`Dosya yeniden adlandirildi: ${trimmed}`);
+}
+
+function deleteFile() {
+  if (!State.activeFile) {
+    App.toast('Once bir dosya secin', true);
+    return;
+  }
+  if (!confirm(`${State.activeFile} dosyasini silmek istediginize emin misiniz?`)) return;
+  delete State.files[State.activeFile];
+  const remaining = Object.keys(State.files);
+  State.activeFile = remaining.length > 0 ? remaining[0] : null;
+  renderFileTabs();
+  if (State.activeFile) {
+    renderCodeView(State.activeFile);
+  } else {
+    DOM.codeContent().classList.add('hidden');
+    DOM.codeEmptyState().classList.remove('hidden');
+    DOM.codeFooter().style.display = 'none';
+  }
+  App.toast('Dosya silindi');
+}
+
+function closeFile(name) {
+  if (!State.files[name]) return;
+  const wasActive = State.activeFile === name;
+  delete State.files[name];
+  const remaining = Object.keys(State.files);
+  if (wasActive) {
+    State.activeFile = remaining.length > 0 ? remaining[0] : null;
+  }
+  renderFileTabs();
+  if (State.activeFile) {
+    renderCodeView(State.activeFile);
+  } else {
+    DOM.codeContent().classList.add('hidden');
+    DOM.codeEmptyState().classList.remove('hidden');
+    DOM.codeFooter().style.display = 'none';
+  }
+}
+
+function saveFile() {
+  if (!State.activeFile) {
+    App.toast('Kaydedilecek dosya yok', true);
+    return;
+  }
+  State.files[State.activeFile].isModified = false;
+  updateFileTabModified(State.activeFile, false);
+  State.lastSaved[State.activeFile] = Date.now();
+  App.toast(`${State.activeFile} kaydedildi`);
+}
+
+function formatCode() {
+  if (!State.isMonacoReady || !State.monacoEditor) return;
+  State.monacoEditor.getAction('editor.action.formatDocument').run();
+  App.toast('Kod formatlandi');
+}
+
+/* ────────────────────────────────────────────────────
+   PROJECT OPERATIONS
+──────────────────────────────────────────────────────*/
+function newProject() {
+  if (Object.keys(State.files).length > 0) {
+    if (!confirm('Mevcut projeyi temizlemek istediginize emin misiniz?')) return;
+  }
+  State.files = {};
+  State.activeFile = null;
+  State.messages = [];
+  State.tokenCount = 0;
+  State.shareUrl = null;
+  State.shareId = null;
+
+  DOM.codeContent().classList.add('hidden');
+  DOM.codeEmptyState().classList.remove('hidden');
+  DOM.codeFooter().style.display = 'none';
+  renderFileTabs();
+
+  const chatContainer = DOM.chatMessages();
+  chatContainer.innerHTML = '';
+
+  const welcomeDiv = document.createElement('div');
+  welcomeDiv.className = 'system-msg animate-fade-up';
+  welcomeDiv.innerHTML = `
+    <div class="flex items-start gap-3">
+      <div class="avatar-ai flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M2 17l10 5 10-5" stroke="#06b6d4" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="msg-bubble-ai flex-1">
+        <div class="text-xs text-emerald-400 font-semibold mb-1 font-mono">OmniVibe AI</div>
+        <p class="text-sm text-slate-300 leading-relaxed">
+          Yeni proje baslatildi! <span class="text-emerald-400 font-semibold">OmniVibe Studio</span>'yum.
+          <span class="text-cyan-400 font-mono text-xs">gpt-oss-120b · high reasoning</span><br>
+          Ne insa etmek istedigini soyle!
+        </p>
+      </div>
+    </div>`;
+  chatContainer.appendChild(welcomeDiv);
+
+  updateTokenCounter();
+  const bar = DOM.contextBar();
+  bar.classList.add('hidden');
+
+  App.toast('Yeni proje baslatildi');
+}
+
+/* ────────────────────────────────────────────────────
+   CONSOLE OPERATIONS
+──────────────────────────────────────────────────────*/
+function clearConsole() {
+  const output = DOM.consoleOutput();
+  if (output) output.innerHTML = '';
+  State.consoleLogs = [];
+}
+
+function toggleConsole() {
+  const panel = DOM.consolePanel();
+  if (!panel) return;
+  if (panel.classList.contains('hidden')) {
+    panel.classList.remove('hidden');
+    panel.style.display = 'flex';
+  } else {
+    panel.classList.add('hidden');
+  }
+}
+
+/* ────────────────────────────────────────────────────
+   RESIZE PANEL
 ──────────────────────────────────────────────────────*/
 function initResize() {
   const handle = $('resize-handle');
-  const chat   = $('panel-chat');
+  const chat = $('panel-chat');
   if (!handle || !chat) return;
 
-  let dragging  = false;
-  let startX    = 0;
-  let startW    = 0;
+  let dragging = false;
+  let startX = 0;
+  let startW = 0;
 
   handle.addEventListener('mousedown', e => {
     dragging = true;
-    startX   = e.clientX;
-    startW   = chat.getBoundingClientRect().width;
-    document.body.style.userSelect    = 'none';
+    startX = e.clientX;
+    startW = chat.getBoundingClientRect().width;
+    document.body.style.userSelect = 'none';
     document.body.style.pointerEvents = 'none';
     e.preventDefault();
   });
 
   document.addEventListener('mousemove', e => {
     if (!dragging) return;
-    const dx     = e.clientX - startX;
-    const newW   = Math.min(Math.max(startW + dx, 280), window.innerWidth * 0.7);
+    const dx = e.clientX - startX;
+    const newW = Math.min(Math.max(startW + dx, 280), window.innerWidth * 0.5);
     chat.style.width = newW + 'px';
-    chat.style.flex  = 'none';
+    chat.style.flex = 'none';
   });
 
   document.addEventListener('mouseup', () => {
     if (!dragging) return;
     dragging = false;
-    document.body.style.userSelect    = '';
+    document.body.style.userSelect = '';
     document.body.style.pointerEvents = '';
   });
 }
@@ -849,18 +1310,17 @@ function showToast(msg, isError = false) {
   const toast = $('toast');
   if (!toast) return;
   const inner = toast.querySelector('.toast-inner');
-  const icon  = $('toast-icon');
-  const text  = $('toast-msg');
+  const icon = $('toast-icon');
+  const text = $('toast-msg');
 
   if (text) text.textContent = msg;
   if (icon) icon.textContent = isError ? '✕' : '✓';
   if (inner) inner.classList.toggle('error', isError);
 
   toast.style.transition = 'opacity 0.2s ease';
-  toast.style.opacity    = '0';
+  toast.style.opacity = '0';
   toast.classList.remove('hidden');
 
-  // Force reflow then fade in
   void toast.offsetHeight;
   toast.style.opacity = '1';
 
@@ -872,17 +1332,56 @@ function showToast(msg, isError = false) {
 }
 
 /* ────────────────────────────────────────────────────
+   CONTEXT MENU
+──────────────────────────────────────────────────────*/
+function showContextMenu(x, y) {
+  const menu = DOM.contextMenu();
+  if (!menu) return;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.remove('hidden');
+}
+
+function hideContextMenu() {
+  const menu = DOM.contextMenu();
+  if (menu) menu.classList.add('hidden');
+}
+
+function contextAction(action) {
+  hideContextMenu();
+  if (!State.isMonacoReady || !State.monacoEditor) return;
+
+  const editor = State.monacoEditor;
+  const selection = editor.getSelection();
+
+  switch (action) {
+    case 'copy':
+      editor.trigger('keyboard', 'editor.action.clipboardCopyAction', {});
+      break;
+    case 'cut':
+      editor.trigger('keyboard', 'editor.action.clipboardCutAction', {});
+      break;
+    case 'paste':
+      editor.trigger('keyboard', 'editor.action.clipboardPasteAction', {});
+      break;
+    case 'delete':
+      if (selection && !selection.isEmpty()) {
+        editor.executeEdits('contextmenu', [{ range: selection, text: '' }]);
+      }
+      break;
+  }
+}
+
+/* ────────────────────────────────────────────────────
    PUBLIC APP API
 ──────────────────────────────────────────────────────*/
 const App = {
-  /* Send chat message */
   send() {
     const input = DOM.chatInput();
-    const text  = input.value.trim();
+    const text = input.value.trim();
     if (text) sendMessage(text);
   },
 
-  /* Keyboard handler */
   handleKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -890,33 +1389,29 @@ const App = {
     }
   },
 
-  /* Auto-resize textarea */
   autoResize(el) {
     el.style.height = '40px';
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   },
 
-  /* Quick prompt button */
   quickPrompt(text) {
     DOM.chatInput().value = text;
     App.send();
   },
 
-  /* View a file in the code panel */
   viewFile(name) {
     if (!State.files[name]) return;
     State.activeFile = name;
     renderCodeView(name);
-
-    // Switch to code tab on mobile
     if (window.innerWidth < 768) {
       App.switchTab('code');
     }
   },
 
-  /* Clear all files */
   clearFiles() {
-    State.files      = {};
+    if (Object.keys(State.files).length === 0) return;
+    if (!confirm('Tum dosyalari silmek istediginize emin misiniz?')) return;
+    State.files = {};
     State.activeFile = null;
     DOM.codeContent().classList.add('hidden');
     DOM.codeEmptyState().classList.remove('hidden');
@@ -925,105 +1420,101 @@ const App = {
     App.toast('Dosyalar temizlendi');
   },
 
-  /* Clear conversation context */
   clearContext() {
-    State.messages   = [];
+    State.messages = [];
     State.tokenCount = 0;
     updateTokenCounter();
     const bar = DOM.contextBar();
     bar.classList.add('hidden');
-    App.toast('Bağlam sıfırlandı');
+    App.toast('Baglam sifirlandi');
   },
 
-  /* Copy active file content */
   copyActiveFile() {
     if (!State.activeFile || !State.files[State.activeFile]) return;
-    navigator.clipboard.writeText(State.files[State.activeFile])
-      .then(() => App.toast(`${State.activeFile} kopyalandı!`))
-      .catch(() => App.toast('Kopyalama başarısız', true));
+    navigator.clipboard.writeText(State.files[State.activeFile].content)
+      .then(() => App.toast(`${State.activeFile} kopyalandi!`))
+      .catch(() => App.toast('Kopyalama basarisiz', true));
   },
 
-   /* Open full preview & Execute JS */
   openPreview() {
-    const fileCount = Object.keys(State.files).length;
-    if (fileCount === 0) {
-      App.toast('Önizlenecek dosya yok', true);
-      return;
-    }
-
-    const fileNames = Object.keys(State.files);
-    const hasHtml = fileNames.some(n => n.endsWith('.html'));
-    
-    // HTML yoksa ama aktif dosya JS ise direkt çalıştır (Backend mantığı)
-    if (!hasHtml && State.activeFile?.endsWith('.js')) {
-      try {
-        const run = new Function(State.files[State.activeFile]);
-        run();
-        App.toast(`${State.activeFile} başarıyla çalıştırıldı! ✓`);
-        return; 
-      } catch (err) {
-        App.toast('Kod Hatası: ' + err.message, true);
-        return;
-      }
-    }
-
-    // Klasik HTML/CSS/JS önizleme modu
-    const doc    = buildPreviewDoc();
-    const iframe = DOM.previewIframe();
-    iframe.srcdoc = doc;
-    DOM.previewModal().classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
+    openPreviewFullscreen();
   },
 
-  /* Close preview */
   closePreview() {
     DOM.previewModal().classList.add('hidden');
     DOM.previewIframe().srcdoc = '';
     document.body.style.overflow = '';
-    // Hide share bar on close
     const bar = DOM.shareLinkBar();
-    if (bar) bar.classList.remove('visible');
+    if (bar) bar.classList.add('hidden');
   },
 
-  /* Refresh preview */
   refreshPreview() {
-    const doc    = buildPreviewDoc();
+    const doc = buildPreviewDoc();
     const iframe = DOM.previewIframe();
     iframe.srcdoc = '';
     setTimeout(() => { iframe.srcdoc = doc; }, 50);
   },
 
-  /* Share preview */
+  refreshPreviewPanel() {
+    updateLivePreview();
+  },
+
+  openPreviewFullscreen,
+
   sharePreview,
-
-  /* Copy share link */
   copyShareLink,
-
-  /* Download ZIP */
   downloadZip,
 
-  /* Mobile tab switch */
-    switchTab(tab) {
+  switchTab(tab) {
     State.currentTab = tab;
     const chatPanel = $('panel-chat');
     const codePanel = $('panel-code');
-    const tabChat   = DOM.tabChat();
-    const tabCode   = DOM.tabCode();
+    const previewPanel = $('panel-preview');
+    const tabChat = DOM.tabChat();
+    const tabCode = DOM.tabCode();
+    const tabPreview = DOM.tabPreview();
+
+    [tabChat, tabCode, tabPreview].forEach(t => t?.classList.remove('active'));
 
     if (tab === 'chat') {
-      if(chatPanel) chatPanel.style.display = 'flex';
+      if (chatPanel) chatPanel.style.display = 'flex';
+      codePanel?.classList.add('hidden');
       codePanel?.classList.remove('mobile-visible');
-      tabChat?.classList.add('active'); // ? işareti null hatasını engeller
-      tabCode?.classList.remove('active');
-    } else {
-      if(chatPanel) chatPanel.style.display = 'none';
+      previewPanel?.classList.add('hidden');
+      previewPanel?.classList.remove('mobile-visible');
+      tabChat?.classList.add('active');
+    } else if (tab === 'code') {
+      if (chatPanel) chatPanel.style.display = 'none';
+      codePanel?.classList.remove('hidden');
       codePanel?.classList.add('mobile-visible');
-      tabChat?.classList.remove('active');
+      previewPanel?.classList.add('hidden');
+      previewPanel?.classList.remove('mobile-visible');
       tabCode?.classList.add('active');
+    } else if (tab === 'preview') {
+      if (chatPanel) chatPanel.style.display = 'none';
+      codePanel?.classList.add('hidden');
+      codePanel?.classList.remove('mobile-visible');
+      previewPanel?.classList.remove('hidden');
+      previewPanel?.classList.add('mobile-visible');
+      tabPreview?.classList.add('active');
+      updateLivePreview();
     }
   },
 
-  /* Toast helper */
+  addNewFile,
+  renameFile,
+  deleteFile,
+  closeFile,
+  saveFile,
+  formatCode,
+
+  newProject,
+
+  clearConsole,
+  toggleConsole,
+
+  contextAction,
+
   toast: showToast,
 };
 
@@ -1031,20 +1522,27 @@ const App = {
    KEYBOARD SHORTCUTS
 ──────────────────────────────────────────────────────*/
 document.addEventListener('keydown', e => {
-  // Escape to close preview
   if (e.key === 'Escape') {
     if (!$('preview-modal').classList.contains('hidden')) {
       App.closePreview();
     }
+    hideContextMenu();
   }
-  // Ctrl+Enter to send
   if (e.ctrlKey && e.key === 'Enter') {
     App.send();
+  }
+  if (e.ctrlKey && e.key === 'n') {
+    e.preventDefault();
+    App.newProject();
+  }
+  if (e.ctrlKey && e.key === 'o') {
+    e.preventDefault();
+    App.addNewFile();
   }
 });
 
 /* ────────────────────────────────────────────────────
-   MOBILE SWIPE  (swipe right on code = go back to chat)
+   MOBILE SWIPE
 ──────────────────────────────────────────────────────*/
 (function initSwipe() {
   let touchStartX = 0;
@@ -1061,36 +1559,51 @@ document.addEventListener('keydown', e => {
     const dy = e.changedTouches[0].clientY - touchStartY;
 
     if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
-      if (dx > 0 && State.currentTab === 'code') {
-        App.switchTab('chat');
-      } else if (dx < 0 && State.currentTab === 'chat') {
-        App.switchTab('code');
+      const tabs = ['chat', 'code', 'preview'];
+      const currentIdx = tabs.indexOf(State.currentTab);
+      if (dx > 0 && currentIdx > 0) {
+        App.switchTab(tabs[currentIdx - 1]);
+      } else if (dx < 0 && currentIdx < tabs.length - 1) {
+        App.switchTab(tabs[currentIdx + 1]);
       }
     }
   }, { passive: true });
 })();
 
 /* ────────────────────────────────────────────────────
+   CONTEXT MENU LISTENER
+──────────────────────────────────────────────────────*/
+document.addEventListener('contextmenu', e => {
+  if (e.target.closest('#monaco-editor')) {
+    e.preventDefault();
+    showContextMenu(e.clientX, e.clientY);
+  }
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#context-menu')) {
+    hideContextMenu();
+  }
+});
+
+/* ────────────────────────────────────────────────────
    INIT
 ──────────────────────────────────────────────────────*/
 document.addEventListener('DOMContentLoaded', () => {
-  // Focus input
   setTimeout(() => DOM.chatInput()?.focus(), 300);
-
-  // Init panel resize
   initResize();
+  initMonacoEditor();
+  initConsoleListener();
 
-  // Mobile: ensure correct initial tab
   if (window.innerWidth < 768) {
     App.switchTab('chat');
   }
 
   console.log(
-    '%c OmniVibe Studio %c Ready ⚡ ',
+    '%c OmniVibe Studio v3 %c Ready ',
     'background:#10b981;color:#050c09;font-weight:bold;padding:2px 6px;border-radius:4px 0 0 4px;',
     'background:#0d1f14;color:#34d399;padding:2px 6px;border-radius:0 4px 4px 0;border:1px solid #10b981;'
   );
 });
 
-/* Expose globally */
 window.App = App;
